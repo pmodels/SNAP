@@ -170,7 +170,7 @@ MODULE plib_module
 !   duplicate to comm_snap. Start the timer.
 !_______________________________________________________________________
 
-    CALL MPI_INIT_THREAD ( thread_serialized, thread_level, ierr )
+    CALL MPI_INIT_THREAD ( thread_multiple, thread_level, ierr )
 
     CALL wtime ( t1 )
 
