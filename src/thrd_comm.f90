@@ -23,7 +23,7 @@ MODULE thrd_comm_module
   PRIVATE
 
   PUBLIC :: assign_thrd_set, no_op_lock_control, sweep_recv_bdry,      &
-    sweep_send_bdry
+    sweep_send_bdry, sweep_wait_bdry
 
   SAVE
 !_______________________________________________________________________
@@ -230,7 +230,21 @@ MODULE thrd_comm_module
                                   jb_in, ycomm, mtag )
     IF ( incomingz ) CALL precv ( zp_rcv, zproc, nang, ichunk, ny,     &
                                   kb_in, zcomm, mtag )
-    IF ( outgoingy .OR. outgoingz ) CALL waitall ( reqs, szreq )
+    IF (incomingy) THEN
+    write(*,*) 'yproc=', yproc, 'recv(ycomm) dst=', yp_rcv , ', tag=', mtag
+    END IF
+    IF (incomingz) THEN
+    write(*,*) 'zproc=', zproc, 'recv(zcomm) dst=', zp_rcv , ', tag=', mtag
+    END IF
+!    IF ( outgoingy .OR. outgoingz ) CALL waitall ( reqs, szreq )
+
+!    IF ( outgoingy) THEN
+!    write(*,*) 'yproc=', yproc, 'wait'
+!    END IF
+!    IF ( outgoingz) THEN
+!    write(*,*) 'zproc=', zproc, 'wait'
+!    END IF
+
 !_______________________________________________________________________
 !
 !   If locks are used, unset the lock of another thread to allow it to
@@ -246,6 +260,55 @@ MODULE thrd_comm_module
 !_______________________________________________________________________
 
   END SUBROUTINE sweep_recv_bdry
+
+
+  SUBROUTINE sweep_wait_bdry ( jd, kd, t, reqs, szreq)
+    INTEGER(i_knd), INTENT(IN) :: jd, kd, t, szreq
+
+    INTEGER(i_knd), DIMENSION(szreq), INTENT(INOUT) :: reqs
+
+    INTEGER(i_knd) :: nxt
+
+    LOGICAL(l_knd) :: outgoingy, outgoingz
+
+    IF ( jd == 1 ) THEN
+      outgoingy = .NOT.firsty
+    ELSE
+      outgoingy = .NOT.lasty
+    END IF
+
+    IF ( kd == 1 ) THEN
+      outgoingz = .NOT.firstz
+    ELSE
+      outgoingz = .NOT.lastz
+    END IF
+
+    IF ( use_lock ) CALL plock_omp ( 'set', t )
+
+    IF ( outgoingy .OR. outgoingz ) CALL waitall ( reqs, szreq )
+
+    IF ( outgoingy) THEN
+    write(*,*) 'yproc=', yproc, 'lastwait'
+    END IF
+    IF ( outgoingz) THEN
+    write(*,*) 'zproc=', zproc, 'lastwait'
+    END IF
+
+!_______________________________________________________________________
+!
+!   If locks are used, unset the lock of another thread to allow it to
+!   perform its communications
+!_______________________________________________________________________
+
+    IF ( use_lock ) THEN
+      nxt = t + 1
+      IF ( nxt > nthreads ) nxt = 1
+      CALL plock_omp ( 'unset', nxt )
+    END IF
+!_______________________________________________________________________
+!_______________________________________________________________________
+
+  END SUBROUTINE sweep_wait_bdry
 
 
   SUBROUTINE sweep_send_bdry ( g, jd, kd, iop, t, reqs, szreq, nc,     &
@@ -305,6 +368,9 @@ MODULE thrd_comm_module
 !_______________________________________________________________________
 
     IF ( use_lock ) CALL plock_omp ( 'set', t )
+
+    IF ( outgoingy .OR. outgoingz ) CALL waitall ( reqs, szreq )
+
 !_______________________________________________________________________
 !
 !   Call to send data downstream. Use non-blocking send.
@@ -314,6 +380,12 @@ MODULE thrd_comm_module
                                   jb_out, ycomm, mtag, reqs(1) )
     IF ( outgoingz ) CALL isend ( zp_snd, zproc, nang, ichunk, ny,     &
                                   kb_out, zcomm, mtag, reqs(2) )
+    IF (outgoingy ) THEN
+    write(*,*) 'yproc=', yproc, ' isend(ycomm) dst=', yp_snd , ', tag=', mtag
+    END IF
+    IF (outgoingz ) THEN
+    write(*,*) 'zproc=', zproc, ' isend(zcomm) dst=', zp_snd , ', tag=', mtag
+    END IF
 !_______________________________________________________________________
 !
 !   If locks are used, unset the lock of another thread to allow it to

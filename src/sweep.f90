@@ -23,7 +23,7 @@ MODULE sweep_module
 
   USE plib_module, ONLY: nthreads, waitinit
 
-  USE thrd_comm_module, ONLY: assign_thrd_set
+  USE thrd_comm_module, ONLY: assign_thrd_set, sweep_wait_bdry
 
   IMPLICIT NONE
 
@@ -137,6 +137,9 @@ MODULE sweep_module
       END DO grp_loop
 
     END DO corner_loop
+
+!   Complete last asynchronous sends
+    CALL sweep_wait_bdry ( jd, kd, t, reqs, SIZE( reqs ))
   !$OMP END PARALLEL
 !_______________________________________________________________________
 !_______________________________________________________________________
