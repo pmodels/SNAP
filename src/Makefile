@@ -6,11 +6,20 @@ FFLAGS =
 FFLAG2 =
 DEFS =
 PP =
+SHM_OBJ=
+
+CFLAGS= -DENABLE_ROOT_DBG
+PREFIX=
 
 MPI = yes
 OPENMP = yes
+# If enable PIP, must set also the PIP-embeded mpif90
+SHM_PIP = yes
+SHM_MPIWIN = no
+SHM = no
 
 FORTRAN = mpif90
+CC = mpicc
 #FORTRAN = mpifort
 #FORTRAN = ftn
 #FORTRAN = mpiifort
@@ -28,6 +37,30 @@ else
     FORTRAN = gfortran
   else
     FORTRAN = ifort
+  endif
+endif
+
+ifeq ($(SHM_PIP),yes)
+  SHM = yes
+  SHM_MPIWIN = no
+  CFLAGS := $(CFLAGS) -DSHM_PIP
+else
+  ifeq ($(SHM_MPIWIN),yes)
+    SHM = yes
+    SHM_PIP = no
+    CFLAGS := $(CFLAGS) -DSHM_MPIWIN
+  endif
+endif
+
+# Disable openmp if SHM is enabled
+ifeq ($(SHM),yes)
+  OPENMP = no
+  DEFS := $(DEFS) SHM
+  
+  ifeq ($(OPT),no)
+    CFLAGS := $(CFLAGS) -O0 -g
+  else
+    CFLAGS := $(CFLAGS) -O3
   endif
 endif
 
@@ -83,29 +116,46 @@ ifeq ($(TARGET),ksnap)
   endif
 endif
 
-.SUFFIXES:	.F90 .f90 .o
+.SUFFIXES:	.F90 .f90 .c .o
 
 OBJS = global.o snap_main.o utils.o version.o plib.o geom.o sn.o \
        data.o control.o input.o setup.o dealloc.o translv.o solvar.o \
        outer.o expxs.o inner.o sweep.o octsweep.o dim1_sweep.o dim3_sweep.o \
-       output.o time.o mms.o analyze.o thrd_comm.o mkba_sweep.o
+       output.o time.o mms.o analyze.o thrd_comm.o mkba_sweep.o plib_dbg.o 
+
+ifeq ($(SHM_PIP),yes)
+  SHM_OBJ := plib_shm_pip.o
+else
+  ifeq ($(SHM_MPIWIN),yes)
+    SHM_OBJ := plib_shm_mpiwin.o
+  endif
+endif
+OBJS := $(OBJS) $(SHM_OBJ)
 
 SRCS = global.f90 snap_main.f90 utils.f90 version.f90 plib.F90 geom.f90 \
        sn.f90 data.f90 control.f90 input.f90 setup.f90 dealloc.f90 \
        translv.f90 solvar.f90 outer.f90 expxs.f90 inner.f90 sweep.f90 \
        octsweep.f90 dim1_sweep.f90 dim3_sweep.f90 output.f90 time.F90 mms.f90 \
-       analyze.f90 thrd_comm.f90 mkba_sweep.f90
+       analyze.f90 thrd_comm.f90 mkba_sweep.f90 plib_dbg.c
+
+ifeq ($(SHM_PIP),yes)
+  SRCS := $(OBJS) plib_shm_pip.c
+else
+  ifeq ($(SHM_MPIWIN),yes)
+    SRCS := $(OBJS) plib_shm_mpiwin.c
+  endif
+endif
 
 $(TARGET) :	$(OBJS)
 		$(FORTRAN) $(FFLAGS) $(FFLAG2) -o $@ $(OBJS)
 
 version.o :	global.o
-geom.o :	global.o
-sn.o :		global.o
-data.o :	global.o
-control.o :	global.o
+geom.o :	global.o plib.o $(SHM_OBJ)
+sn.o :		global.o plib.o
+data.o :	global.o plib.o
+control.o :	global.o plib.o
 time.o :	global.o
-plib.o :	global.o time.o
+plib.o :	global.o time.o plib_dbg.o $(SHM_OBJ)
 thrd_comm.o:	global.o plib.o
 expxs.o :	global.o geom.o sn.o data.o
 solvar.o :	global.o plib.o geom.o sn.o data.o control.o
@@ -133,6 +183,9 @@ outer.o :	global.o geom.o sn.o data.o solvar.o control.o inner.o \
 		time.o plib.o expxs.o thrd_comm.o
 translv.o :	global.o plib.o geom.o sn.o data.o control.o utils.o \
 		solvar.o expxs.o outer.o time.o thrd_comm.o analyze.o
+
+plib_%.o:	plib_%.c
+	$(CC) $(CFLAGS) -c $<
 
 #
 # Fortran rules

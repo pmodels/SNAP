@@ -27,7 +27,7 @@ MODULE outer_module
 
   USE time_module, ONLY: totrsrc, tinners, wtime
 
-  USE plib_module, ONLY: nthreads, glmax, comm_snap
+  USE plib_module
 
   USE expxs_module, ONLY: expxs_reg, expxs_slgg
 
@@ -78,6 +78,9 @@ MODULE outer_module
 !   will not change grp_act, but the action better resembles production.
 !_______________________________________________________________________
 
+#ifdef SHM
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
 
     CALL wtime ( t1 )
@@ -89,19 +92,31 @@ MODULE outer_module
       do_grp(g) = ng - g + 1
     END DO
 
+!    write(*,*) 'outer: do_grp=', do_grp
     CALL assign_thrd_set ( do_grp, ng, ng_per_thrd, ny*nz, nnstd_used, &
       grp_act )
 
   !$OMP END MASTER
   !$OMP BARRIER
+#ifdef SHM
+  END IF
+  CALL shm_barrier
+#endif
 
     CALL outer_src ( ng_per_thrd, nnstd_used, grp_act(:,t) )
   !$OMP BARRIER
 
+#ifdef SHM
+  CALL shm_barrier
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
     CALL wtime ( t2 )
     totrsrc = totrsrc + t2 - t1
   !$OMP END MASTER
+#ifdef SHM
+  END IF
+#endif
 !_______________________________________________________________________
 !
 !   Zero out the inner iterations group count. Save the flux for
@@ -117,23 +132,34 @@ MODULE outer_module
 !
 !   Start the inner iterations
 !_______________________________________________________________________
-
+#ifdef SHM
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
     CALL wtime ( t3 )
   !$OMP END MASTER
+#ifdef SHM
+  END IF
+  CALL shm_barrier
+#endif
 
   !$OMP BARRIER
 
     inner_loop: DO inno = 1, iitm_i
-
       CALL inner ( inno, iits, t, do_grp, ng_per_thrd, nnstd_used,     &
         grp_act )
   !$OMP BARRIER
-
+#ifdef SHM
+  CALL shm_barrier
+#endif
+!write(*,*), inrdone
       IF ( ALL( inrdone ) ) EXIT inner_loop
 
     END DO inner_loop
 
+#ifdef SHM
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
 
     CALL wtime ( t4 )
@@ -144,11 +170,16 @@ MODULE outer_module
 !_______________________________________________________________________
 
     do_grp = 1
+!    write(*,*) 'outer2: do_grp=', do_grp
     CALL assign_thrd_set ( do_grp, ng, ng_per_thrd, 0, nnstd_used,     &
       grp_act )
 
   !$OMP END MASTER
   !$OMP BARRIER
+#ifdef SHM
+  END IF
+  CALL shm_barrier
+#endif
 
     CALL outer_conv ( otno, ng_per_thrd, nnstd_used, grp_act(:,t) )
 !_______________________________________________________________________
@@ -311,7 +342,11 @@ MODULE outer_module
   !$OMP& PROC_BIND(CLOSE)
     DO n = 1, ng_per_thrd
 
+      ! *PIP: grp_act(:,t) thus different group on each PIP
+
       g = grp_act(n)
+!      write(*,*) "outer_conv ", iproc," n=", n, " g=", g
+
       IF ( g == 0 ) THEN
         df(:,:,:,n) = -one
         CYCLE
@@ -324,29 +359,58 @@ MODULE outer_module
       END WHERE
       df(:,:,:,n) = ABS( flux0(:,:,:,g)/flux0po(:,:,:,g) - df(:,:,:,n) )
 
+!write(*,*) "outer_conv ", iproc,"flux0po g=", g, flux0po(:,1,1,g)
+!write(*,*) "outer_conv ", iproc,"flux0 g=", g, flux0(:,1,1,g)
     END DO
   !$OMP END PARALLEL DO
 
     dft = MAXVAL( df )
+!    write(*,*) "outer ", iproc," dft=", dft
+#ifdef SHM
+    CALL glmax ( dft, comm_shm )
+#endif
 
+#ifdef SHM
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
-    dfmxo = -HUGE( one )
+    dfmxo(1) = -HUGE( one )
   !$OMP END MASTER
   !$OMP BARRIER
+#ifdef SHM
+  END IF
+  CALL shm_barrier
+#endif
 
+!write(*,*) "outer ", iproc, " dfmxo", dfmxo(1), dft
+
+#ifdef SHM
+  dfmxo(1) = MAX( dfmxo(1), dft )
+  CALL glmax ( dfmxo(1), comm_shm )
+#else
   !$OMP CRITICAL
-    dfmxo = MAX( dfmxo, dft )
+    dfmxo(1) = MAX( dfmxo(1), dft )
   !$OMP END CRITICAL
   !$OMP BARRIER
+#endif
 
+#ifdef SHM
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
 
-    CALL glmax ( dfmxo, comm_snap )
-
-    IF ( dfmxo<=100.0_r_knd*epsi .AND. ALL( inrdone ) .AND. otno/=1 )  &
-      otrdone = .TRUE.
+#ifdef SHM
+    CALL glmax ( dfmxo(1), comm_shmgrp )
+#else
+    CALL glmax ( dfmxo(1), comm_snap )
+#endif
+    IF ( dfmxo(1)<=100.0_r_knd*epsi .AND. ALL( inrdone ) .AND. otno/=1 )  &
+      otrdone(1) = .TRUE.
 
   !$OMP END MASTER
+#ifdef SHM
+  END IF
+#endif
 !_______________________________________________________________________
 !_______________________________________________________________________
 

@@ -78,7 +78,10 @@ PROGRAM snap_main
 
   USE plib_module, ONLY: pinit, iproc, root, comm_snap, bcast,         &
     pcomm_set, pinit_omp
-
+#ifdef SHM
+  USE plib_module, ONLY: is_shm_master, shm_iproc, comm_shm, wiproc,   &
+    shm_barrier
+#endif
   USE control_module, ONLY: otrdone, swp_typ
 
   IMPLICIT NONE
@@ -167,12 +170,14 @@ PROGRAM snap_main
 
   CALL wtime ( t4 )
   tparset = tparset + t4 - t3
+
 !_______________________________________________________________________
 !
 ! Setup problem
 !_______________________________________________________________________
 
   CALL setup
+
 !_______________________________________________________________________
 !
 ! Call for the problem solution
@@ -184,7 +189,7 @@ PROGRAM snap_main
 ! Output the results. Print the timing summary.
 !_______________________________________________________________________
 
-  CALL output
+!  CALL output
   IF ( iproc == root ) CALL time_summ
 !_______________________________________________________________________
 !
@@ -202,6 +207,13 @@ PROGRAM snap_main
     WRITE( ounit, 502 ) tgrind, ( star, i = 1, 80 )
   END IF
 
+#ifdef SHM
+  ! Wait master PIP done
+  CALL shm_barrier
+  CALL bcast ( otrdone(1), comm_shm, 0 )
+  write(*,*) 'wiproc=', wiproc , ' shm_iproc', shm_iproc, ' otrdone=', otrdone
+#endif
+
   CALL close_file ( ounit, ierr, error )
   CALL bcast ( ierr, comm_snap, root )
   IF ( ierr /= 0 ) THEN
@@ -209,7 +221,7 @@ PROGRAM snap_main
     CALL stop_run ( 1, 0, 0, 0 )
   END IF
 
-  IF ( otrdone ) THEN
+  IF ( otrdone(1) ) THEN
     CALL stop_run ( 1, 0, 0, 1 )
   ELSE
     CALL stop_run ( 1, 0, 0, 2 )

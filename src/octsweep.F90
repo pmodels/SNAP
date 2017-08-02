@@ -32,6 +32,8 @@ MODULE octsweep_module
 
   USE mkba_sweep_module, ONLY: mkba_sweep
 
+  USE plib_module
+
   IMPLICIT NONE
 
   PUBLIC :: octsweep
@@ -68,6 +70,9 @@ MODULE octsweep_module
 !_______________________________________________________________________
 
     IF ( g == 0 ) THEN
+#ifdef SHM
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
       DO iop = 1, 2*nc
         CALL no_op_lock_control ( t )
@@ -75,6 +80,10 @@ MODULE octsweep_module
       END DO
   !$OMP END MASTER
   !$OMP BARRIER
+#ifdef SHM
+  END IF
+  !CALL shm_barrier
+#endif
       RETURN
     END IF
 !_______________________________________________________________________

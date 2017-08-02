@@ -35,7 +35,9 @@ MODULE setup_module
     iproc, root, nthreads, thread_level, thread_single,                &
     thread_funneled, thread_serialized, thread_multiple, nnested,      &
     do_nested, ichunk, pce
-
+#ifdef SHM
+  USE plib_module
+#endif
   IMPLICIT NONE
 
   PRIVATE
@@ -85,22 +87,26 @@ MODULE setup_module
     kub = (zproc+1) * nz
 
     nc = nx/ichunk
+
 !_______________________________________________________________________
 !
 !   Allocate needed arrays
 !_______________________________________________________________________
 
+!* PIP: the master PIP allocates and others get PTR
     CALL setup_alloc ( flg, ierr, error )
     IF ( ierr /= 0 ) THEN
       CALL print_error ( ounit, error )
       CALL stop_run ( 1, flg, 0, 0 )
     END IF
+
 !_______________________________________________________________________
 !
 !   Set up the corner schedule for 3-D problems. Choose the order that
 !   minimizes the number of stages based on npey and npez.
 !_______________________________________________________________________
 
+!* PIP: no update after setup, each PIP holds a separate instance.
     jdim = MIN( ndimen, 2 )
     kdim = MAX( ndimen-1, 1 )
     ncor = jdim*kdim
@@ -131,7 +137,6 @@ MODULE setup_module
 !   Compute an array that determines each KBA stage's relative position
 !   in the full sweep, yzstg.
 !_______________________________________________________________________
-
     IF ( cor_swp == 1 ) THEN
       DO i = 1, ncor
         IF ( i==1 .OR. i==3 ) THEN
@@ -178,6 +183,7 @@ MODULE setup_module
 !   expansion basis function array.
 !_______________________________________________________________________
 
+!* PIP: define in each subroutine
     CALL setup_delta
 
     CALL setup_vel
@@ -189,6 +195,7 @@ MODULE setup_module
     CALL setup_data
 
     CALL sn_expcoeff ( ndimen )
+
 
     CALL setup_src ( qis, qie, qjs, qje, qks, qke, ierr, error )
     IF ( ierr /= 0 ) THEN
@@ -264,7 +271,7 @@ MODULE setup_module
 
 !_______________________________________________________________________
 !_______________________________________________________________________
-
+  CALL plib_dbg_rootprintf("setup_alloc done")
   END SUBROUTINE setup_alloc
 
 
@@ -309,10 +316,18 @@ MODULE setup_module
 
     IF ( timedep == 0 ) RETURN
 
+#ifdef SHM
+    IF ( is_shm_master .EQV. .TRUE. ) THEN
+    CALL plib_dbg_printf("setup_vel")
+#endif
+
     DO g = 1, ng
       t = ng - g + 1
       v(g) = REAL( t, r_knd )
     END DO
+#ifdef SHM
+    END IF
+#endif
 !_______________________________________________________________________
 !_______________________________________________________________________
 
@@ -340,6 +355,11 @@ MODULE setup_module
 !
 !   Arrays allocated according to dimensionality. So do loops by ndimen.
 !_______________________________________________________________________
+
+#ifdef SHM
+    IF ( is_shm_master .EQV. .TRUE. ) THEN
+    CALL plib_dbg_printf("setup_angle")
+#endif
 
     dm = one/REAL( nang, r_knd )
     t = zero
@@ -375,6 +395,10 @@ MODULE setup_module
     ELSE
       w = 0.125_r_knd / REAL( nang, r_knd )
     END IF
+
+#ifdef SHM
+    END IF
+#endif
 !_______________________________________________________________________
 !_______________________________________________________________________
 
@@ -412,6 +436,11 @@ MODULE setup_module
 !   Form the base with mat1. Use dimension and mat_opt to determine
 !   the rest of the layout.
 !_______________________________________________________________________
+
+#ifdef SHM
+    IF ( is_shm_master .EQV. .TRUE. ) THEN
+    CALL plib_dbg_printf("setup_mat")
+#endif
 
     mat = 1
 
@@ -454,6 +483,10 @@ MODULE setup_module
     END IF
 !_______________________________________________________________________
 !_______________________________________________________________________
+
+#ifdef SHM
+    END IF
+#endif
 
   END SUBROUTINE setup_mat
 
@@ -499,6 +532,11 @@ MODULE setup_module
       CALL mms_setup ( ierr, error )
       RETURN
     END IF
+
+#ifdef SHM
+    IF ( is_shm_master .EQV. .TRUE. ) THEN
+    CALL plib_dbg_printf("setup_src after mms")
+#endif
 !_______________________________________________________________________
 !
 !   If src_opt is 0, source is everywhere
@@ -550,6 +588,9 @@ MODULE setup_module
     END DO
 !_______________________________________________________________________
 !_______________________________________________________________________
+#ifdef SHM
+    END IF
+#endif
 
   END SUBROUTINE setup_src
 
@@ -571,6 +612,11 @@ MODULE setup_module
     INTEGER(i_knd) :: g, n
 
     REAL(r_knd) :: t
+
+#ifdef SHM
+    IF ( is_shm_master .EQV. .TRUE. ) THEN
+    CALL plib_dbg_printf("setup_data")
+#endif
 !_______________________________________________________________________
 !
 !   Set the group 1 data for material 1 and material 2 (if present).
@@ -690,7 +736,9 @@ MODULE setup_module
     END IF
 !_______________________________________________________________________
 !_______________________________________________________________________
-
+#ifdef SHM
+    END IF
+#endif
   END SUBROUTINE setup_data
 
 
@@ -714,6 +762,10 @@ MODULE setup_module
 
     INTEGER(i_knd) :: i, j
 !_______________________________________________________________________
+
+#ifdef SHM
+    CALL plib_dbg_printf("setup_echo")
+#endif
 
     WRITE( ounit, 131 ) ( star, i = 1, 80 )
 
@@ -881,6 +933,10 @@ MODULE setup_module
 !
 !   Open the 'slgg' file
 !_______________________________________________________________________
+
+#ifdef SHM
+    CALL plib_dbg_printf("setup_scatp")
+#endif
 
     ierr = 0
     error = ' '

@@ -9,8 +9,7 @@ SUBROUTINE translv
 
   USE global_module, ONLY: i_knd, r_knd, ounit, zero, half, one, two
 
-  USE plib_module, ONLY: glmax, comm_snap, iproc, root, ichunk,        &
-    nthreads, thread_num, use_lock, plock_omp
+  USE plib_module
 
   USE geom_module, ONLY: geom_allocate, dinv, geom_param_calc, nx,     &
     ny_gl, nz_gl
@@ -21,7 +20,7 @@ SUBROUTINE translv
     qim
 
   USE control_module, ONLY: nsteps, timedep, dt, oitm, otrdone, dfmxo, &
-    it_det, popout, swp_typ, angcpy, update_ptr, iitm
+    it_det, popout, swp_typ, angcpy, update_ptr, iitm, gcy
 
   USE utils_module, ONLY: print_error, stop_run
 
@@ -48,15 +47,30 @@ SUBROUTINE translv
 
   CHARACTER(LEN=64) :: error
 
+  ! Access shared variable in pointer format to maitain unified source
+#ifdef SHM
+  INTEGER(i_knd), DIMENSION(:), POINTER :: ng_per_thrd
+  INTEGER(i_knd), DIMENSION(:), POINTER :: iits
+#else
+  INTEGER(i_knd), DIMENSION(1) :: ng_per_thrd
+  INTEGER(i_knd), DIMENSION(ng) :: iits
+#endif
+
+  ! PIP: only accessed by master
   INTEGER(i_knd) :: cy, otno, ierr, g, l, i, tot_iits, cy_iits,        &
-    out_iits, t, ng_per_thrd, n, nnstd_used
+  out_iits, t, n, nnstd_used
+  INTEGER(i_knd), DIMENSION(ng) :: do_grp
 
-  INTEGER(i_knd), DIMENSION(ng) :: iits, do_grp
-
+  ! Access shared variable in pointer format to maitain unified source
+#ifdef SHM
+  INTEGER(i_knd), DIMENSION(:,:), POINTER :: grp_act
+  REAL(r_knd), DIMENSION(:), POINTER :: sf, time
+#else
   INTEGER(i_knd), DIMENSION(ng,nthreads) :: grp_act
+  REAL(r_knd), DIMENSION(1) :: sf, time
+#endif
 
-  REAL(r_knd) :: sf, time, t1, t2, t3, t4, t5, tmp
-
+  REAL(r_knd) :: t1, t2, t3, t4, t5, tmp
   REAL(r_knd), DIMENSION(:,:,:,:,:,:), POINTER :: ptr_tmp
 !_______________________________________________________________________
 !
@@ -86,6 +100,14 @@ SUBROUTINE translv
     CALL stop_run ( 1, 4, 1, 0 )
   END IF
 
+#ifdef SHM
+  CALL shm_allocate(ng, nthreads, grp_act, "grp_act")
+  CALL shm_allocate(1, ng_per_thrd, "ng_per_thrd")
+  CALL shm_allocate(1, sf, "sf")
+  CALL shm_allocate(1, time, "time")
+  CALL shm_allocate(ng, iits, "iits")
+#endif
+
   CALL wtime ( t2 )
   tparam = tparam + t2 - t1
 !_______________________________________________________________________
@@ -109,11 +131,14 @@ SUBROUTINE translv
 !   Initialize the single threaded region that will span the entirety
 !   of the transport solution per time step.
 !_______________________________________________________________________
-
+  gcy(1) = cy
   !$OMP PARALLEL NUM_THREADS(nthreads) IF(nthreads>1) PROC_BIND(SPREAD)&
   !$OMP& DEFAULT(SHARED) PRIVATE(t,g,otno)
-
+#ifdef SHM
+    t = shm_iproc + 1
+#else
     t = thread_num() + 1
+#endif
 
     IF ( use_lock .AND. t>1 ) CALL plock_omp ( 'set', t )
 !_______________________________________________________________________
@@ -121,25 +146,27 @@ SUBROUTINE translv
 !   A single thread does initial setup.
 !_______________________________________________________________________
 
+#ifdef SHM
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
 
     CALL wtime ( t3 )
 
     vdelt = zero
-    time = one
-    update_ptr = .TRUE.
+    time(1) = one
+    update_ptr(1) = .TRUE.
     IF ( timedep == 1 ) THEN
       IF ( iproc == root ) THEN
         WRITE( *, 202 )     ( star, i = 1, 30 ), cy
         WRITE( ounit, 202 ) ( star, i = 1, 30 ), cy
       END IF
       vdelt = two / ( dt * v )
-      time = dt * ( REAL( cy, r_knd ) - half )
-      IF ( angcpy == 1 ) update_ptr = .FALSE.
+      time(1) = dt * ( REAL( cy, r_knd ) - half )
+      IF ( angcpy == 1 ) update_ptr(1) = .FALSE.
     END IF
-
     IF ( cy>1 .AND. src_opt==3 )                                       &
-      sf = REAL( 2*cy - 1, r_knd ) / REAL( 2*cy-3, r_knd )
+      sf(1) = REAL( 2*cy - 1, r_knd ) / REAL( 2*cy-3, r_knd )
 
     IF ( cy > 1 ) THEN
       ptr_tmp => ptr_out
@@ -147,6 +174,7 @@ SUBROUTINE translv
       ptr_in  => ptr_tmp
       NULLIFY( ptr_tmp )
     END IF
+
 !_______________________________________________________________________
 !
 !   Some additional parameter setup work will be done with threads over
@@ -155,10 +183,25 @@ SUBROUTINE translv
 !_______________________________________________________________________
 
     do_grp = 1
-    CALL assign_thrd_set ( do_grp, ng, ng_per_thrd, 0, nnstd_used,     &
+    CALL assign_thrd_set ( do_grp, ng, ng_per_thrd(1), 0, nnstd_used,     &
       grp_act )
 
+
   !$OMP END MASTER
+#ifdef SHM
+  ELSE
+    ! *PIP: each process may holds different address in MPI3 load mode. But
+    ! should be the same in PIP.
+    IF ( gcy(1) > 1 ) THEN
+      ptr_tmp => ptr_out
+      ptr_out => ptr_in
+      ptr_in  => ptr_tmp
+      NULLIFY( ptr_tmp )
+    END IF
+  END IF
+  CALL shm_barrier
+#endif
+
   !$OMP BARRIER
 !_______________________________________________________________________
 !
@@ -171,8 +214,7 @@ SUBROUTINE translv
   !$OMP PARALLEL DO SCHEDULE(STATIC,1) NUM_THREADS(nnstd_used)         &
   !$OMP& IF(nnstd_used>1) PROC_BIND(CLOSE) DEFAULT(SHARED)             &
   !$OMP& PRIVATE(n,g,l)
-    DO n = 1, ng_per_thrd
-
+    DO n = 1, ng_per_thrd(1)
       g = grp_act(n,t)
       IF ( g == 0 ) CYCLE
 
@@ -193,9 +235,11 @@ SUBROUTINE translv
 
       IF ( src_opt == 3 ) THEN
         IF ( cy == 1 ) THEN
-          qim(:,:,:,:,:,g) = time*qim(:,:,:,:,:,g)
+          qim(:,:,:,:,:,g) = time(1)*qim(:,:,:,:,:,g)
         ELSE
-          qim(:,:,:,:,:,g) = qim(:,:,:,:,:,g)*sf
+          qim(:,:,:,:,:,g) = qim(:,:,:,:,:,g)*sf(1)
+!          write(*,*) 'translv scale=', wiproc, g,'qim(***,g)', qim(1,1,1,1,:,g)
+!          write(*,*) 'translv scale=', wiproc, g,'sf(1)', sf(1)
         END IF
       END IF
 
@@ -203,13 +247,14 @@ SUBROUTINE translv
   !$OMP END PARALLEL DO
 !_______________________________________________________________________
 !
-!   Using Jacobi iterations in energy, and the work in the outer loop
+!   Using Jacobi iterations in energy,  and the work in the outer loop
 !   will be parallelized with threads.
 !_______________________________________________________________________
-
+#ifdef SHM
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
-
-    otrdone = .FALSE.
+    otrdone(1) = .FALSE.
 
     cy_iits = 0
 
@@ -223,38 +268,55 @@ SUBROUTINE translv
 
   !$OMP END MASTER
   !$OMP BARRIER
+#ifdef SHM
+  END IF
+  CALL shm_barrier
+#endif
 
     outer_loop: DO otno = 1, oitm
 
+#ifdef SHM
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
       IF ( iproc==root .AND. it_det==1 ) THEN
         WRITE( *, 204 )     ( star, i = 1, 20 ), otno
         WRITE( ounit, 204 ) ( star, i = 1, 20 ), otno
       END IF
   !$OMP END MASTER
+#ifdef SHM
+  END IF
+#endif
 !_______________________________________________________________________
 !
 !     Perform an outer iteration. Add up inners. Check convergence.
 !_______________________________________________________________________
 
-      CALL outer ( iits, otno, t, do_grp, ng_per_thrd, nnstd_used, &
+      CALL outer ( iits, otno, t, do_grp, ng_per_thrd(1), nnstd_used, &
         grp_act, iitm )
   !$OMP BARRIER
 
+#ifdef SHM
+  CALL shm_barrier
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
 
       out_iits = SUM( iits )
       cy_iits = cy_iits + out_iits
 
       IF ( iproc == root ) THEN
-        WRITE( *, 205 )     otno, dfmxo, out_iits
-        WRITE( ounit, 205 ) otno, dfmxo, out_iits
+        WRITE( *, 205 )     otno, dfmxo(1), out_iits
+        WRITE( ounit, 205 ) otno, dfmxo(1), out_iits
       END IF
 
   !$OMP END MASTER
   !$OMP BARRIER
-
-      IF ( otrdone ) EXIT outer_loop
+#ifdef SHM
+  END IF
+  CALL shm_barrier
+#endif
+      IF ( otrdone(1) ) EXIT outer_loop
 
     END DO outer_loop
 !_______________________________________________________________________
@@ -272,10 +334,14 @@ SUBROUTINE translv
         otno = otno + 1
       END IF
 
+#ifdef SHM
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
-      update_ptr = .TRUE.
+      update_ptr(1) = .TRUE.
       do_grp = 1
-      CALL assign_thrd_set ( do_grp, ng, ng_per_thrd, 0, nnstd_used,   &
+!      write(*,*) 'translv2: do_grp=', do_grp
+      CALL assign_thrd_set ( do_grp, ng, ng_per_thrd(1), 0, nnstd_used,   &
         grp_act )
       IF ( iproc==root .AND. it_det==1 ) THEN
         WRITE( *, 204 )     ( star, i = 1, 20 ), otno
@@ -283,30 +349,44 @@ SUBROUTINE translv
       END IF
   !$OMP END MASTER
   !$OMP BARRIER
+#ifdef SHM
+  END IF
+  CALL shm_barrier
+#endif
 
-      CALL outer ( iits, otno, t, do_grp, ng_per_thrd, nnstd_used,     &
+      CALL outer ( iits, otno, t, do_grp, ng_per_thrd(1), nnstd_used,     &
         grp_act, 1 )
   !$OMP BARRIER
 
+#ifdef SHM
+  CALL shm_barrier
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
       out_iits = SUM( iits )
       cy_iits = cy_iits + out_iits
       IF ( iproc == root ) THEN
-        WRITE( *, 205 )     otno, dfmxo, out_iits
-        WRITE( ounit, 205 ) otno, dfmxo, out_iits
+        WRITE( *, 205 )     otno, dfmxo(1), out_iits
+        WRITE( ounit, 205 ) otno, dfmxo(1), out_iits
       END IF
   !$OMP END MASTER
   !$OMP BARRIER
-
+#ifdef SHM
+  END IF
+  CALL shm_barrier
+#endif
     END IF
 !_______________________________________________________________________
 !
 !   Master thread computes and prints the particle spectrum every cycle.
 !_______________________________________________________________________
 
+#ifdef SHM
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
 
-    IF ( popout == 2 ) CALL analyze_pop_calc ( cy, time )
+    IF ( popout == 2 ) CALL analyze_pop_calc ( cy, time(1) )
 !_______________________________________________________________________
 !
 !   Print the time cycle details. Add time cycle iterations. End the
@@ -315,15 +395,15 @@ SUBROUTINE translv
 
     IF ( iproc == root ) THEN
       IF ( timedep == 1 ) THEN
-        IF ( otrdone ) THEN
-          WRITE( *, 206 )     cy, time, otno, cy_iits
-          WRITE( ounit, 206 ) cy, time, otno, cy_iits
+        IF ( otrdone(1) ) THEN
+          WRITE( *, 206 )     cy, time(1), otno, cy_iits
+          WRITE( ounit, 206 ) cy, time(1), otno, cy_iits
         ELSE
-          WRITE( *, 207 )     cy, time, otno-1, cy_iits
-          WRITE( ounit, 207 ) cy, time, otno-1, cy_iits
+          WRITE( *, 207 )     cy, time(1), otno-1, cy_iits
+          WRITE( ounit, 207 ) cy, time(1), otno-1, cy_iits
         END IF
       ELSE
-        IF ( otrdone ) THEN
+        IF ( otrdone(1) ) THEN
           WRITE( *, 208 )     otno, cy_iits
           WRITE( ounit, 208 ) otno, cy_iits
         ELSE
@@ -336,10 +416,16 @@ SUBROUTINE translv
     tot_iits = tot_iits + cy_iits
 
   !$OMP END MASTER
-
+#ifdef SHM
+  END IF
+#endif
     IF ( use_lock .AND. t>1 ) CALL plock_omp ( 'unset', t )
 
   !$OMP END PARALLEL
+
+#ifdef SHM
+  CALL shm_barrier
+#endif
 
   END DO time_loop
 !_______________________________________________________________________
@@ -347,7 +433,15 @@ SUBROUTINE translv
 !   Compute and print the particle spectrum only at end of calc.
 !_______________________________________________________________________
 
-    IF ( popout == 1 ) CALL analyze_pop_calc ( cy, time )
+    IF ( popout == 1 ) CALL analyze_pop_calc ( cy, time(1) )
+
+#ifdef SHM
+  CALL shm_deallocate(grp_act)
+  CALL shm_deallocate(ng_per_thrd)
+  CALL shm_deallocate(sf)
+  CALL shm_deallocate(time)
+  CALL shm_deallocate(iits)
+#endif
 !_______________________________________________________________________
 !
 !   Final prints.

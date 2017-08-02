@@ -14,9 +14,10 @@ MODULE thrd_comm_module
 
   USE global_module, ONLY: i_knd, l_knd, r_knd
 
-  USE plib_module, ONLY: nthreads, nnested, plock_omp, ycomm, zcomm,   &
-    precv, ylop, yhip, zlop, zhip, firsty, firstz, lasty, lastz,       &
-    use_lock, waitall, isend, yproc, zproc
+!  USE plib_module, ONLY: nthreads, nnested, plock_omp, ycomm, zcomm,   &
+!    precv, ylop, yhip, zlop, zhip, firsty, firstz, lasty, lastz,       &
+!    use_lock, waitall, isend, yproc, zproc
+  USE plib_module
 
   IMPLICIT NONE
 
@@ -84,6 +85,10 @@ MODULE thrd_comm_module
 
     tasks_per_thrd = (ntasks-1)/thrd_set_size + 1
 
+!    IF ( tasks_per_thrd < 10 ) THEN
+!    write(*,*), 'thrd_set: ', ntasks, nthreads, thrd_set_size, tasks_per_thrd
+!    call plib_dbg_breakpoint
+!    END IF
     task_act = 0
 !_______________________________________________________________________
 !
@@ -226,18 +231,20 @@ MODULE thrd_comm_module
 !   asynchronous send operations.
 !_______________________________________________________________________
 
+    ! *PIP: each PIP simply accesses separate ycomm/zcomm.
     IF ( incomingy ) CALL precv ( yp_rcv, yproc, nang, ichunk, nz,     &
                                   jb_in, ycomm, mtag )
     IF ( incomingz ) CALL precv ( zp_rcv, zproc, nang, ichunk, ny,     &
                                   kb_in, zcomm, mtag )
     IF (incomingy) THEN
-    write(*,*) 'yproc=', yproc, 'recv(ycomm) dst=', yp_rcv , ', tag=', mtag
-    END IF
-    IF (incomingz) THEN
-    write(*,*) 'zproc=', zproc, 'recv(zcomm) dst=', zp_rcv , ', tag=', mtag
+!    write(*,*) 'yproc=', yproc, wiproc, 'recv(ycomm) dst=', yp_rcv , ', tag=', &
+!        mtag, jb_in(:,:,1)
+!    END IF
+!    IF (incomingz) THEN
+!    write(*,*) 'zproc=', zproc, wiproc, 'recv(zcomm) dst=', zp_rcv , ', tag=', &
+!        mtag, kb_in(:,:,1)
     END IF
 !    IF ( outgoingy .OR. outgoingz ) CALL waitall ( reqs, szreq )
-
 !    IF ( outgoingy) THEN
 !    write(*,*) 'yproc=', yproc, 'wait'
 !    END IF
@@ -287,12 +294,12 @@ MODULE thrd_comm_module
 
     IF ( outgoingy .OR. outgoingz ) CALL waitall ( reqs, szreq )
 
-    IF ( outgoingy) THEN
-    write(*,*) 'yproc=', yproc, 'lastwait'
-    END IF
-    IF ( outgoingz) THEN
-    write(*,*) 'zproc=', zproc, 'lastwait'
-    END IF
+!    IF ( outgoingy) THEN
+!    write(*,*) 'yproc=', yproc, 'lastwait'
+!    END IF
+!    IF ( outgoingz) THEN
+!    write(*,*) 'zproc=', zproc, 'lastwait'
+!    END IF
 
 !_______________________________________________________________________
 !
@@ -376,16 +383,19 @@ MODULE thrd_comm_module
 !   Call to send data downstream. Use non-blocking send.
 !_______________________________________________________________________
 
+    ! *PIP: each PIP simply accesses separate ycomm/zcomm.
     IF ( outgoingy ) CALL isend ( yp_snd, yproc, nang, ichunk, nz,     &
                                   jb_out, ycomm, mtag, reqs(1) )
     IF ( outgoingz ) CALL isend ( zp_snd, zproc, nang, ichunk, ny,     &
                                   kb_out, zcomm, mtag, reqs(2) )
-    IF (outgoingy ) THEN
-    write(*,*) 'yproc=', yproc, ' isend(ycomm) dst=', yp_snd , ', tag=', mtag
-    END IF
-    IF (outgoingz ) THEN
-    write(*,*) 'zproc=', zproc, ' isend(zcomm) dst=', zp_snd , ', tag=', mtag
-    END IF
+!    IF (outgoingy ) THEN
+!    write(*,*) 'yproc=', yproc, wiproc, ' isend(ycomm) dst=', yp_snd ,   &
+!        'tag=', mtag, jb_out(:,:,1)
+!    END IF
+!    IF (outgoingz ) THEN
+!    write(*,*) 'zproc=', zproc, wiproc, ' isend(zcomm) dst=', zp_snd ,   &
+!        'tag=', mtag, kb_out(:,:,1)
+!    END IF
 !_______________________________________________________________________
 !
 !   If locks are used, unset the lock of another thread to allow it to

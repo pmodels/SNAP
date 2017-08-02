@@ -10,8 +10,7 @@ MODULE mkba_sweep_module
 
   USE global_module, ONLY: i_knd, r_knd, zero, two, one, half
 
-  USE plib_module, ONLY: ichunk, firsty, lasty, firstz, lastz,         &
-    nnested
+  USE plib_module
 
   USE geom_module, ONLY: nx, hi, hj, hk, ndimen, ny, nz, ndiag, diag, nc
 
@@ -157,11 +156,18 @@ MODULE mkba_sweep_module
 !     level threads.
 !_______________________________________________________________________
 
+#ifdef SHM
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
       CALL sweep_recv_bdry ( g, jd, kd, iop, t, reqs, szreq, nc, nang, &
         ichunk, ny, nz, jb_in, kb_in )
   !$OMP END MASTER
   !$OMP BARRIER
+#ifdef SHM
+  END IF
+  CALL shm_barrier
+#endif
 !_______________________________________________________________________
 !
 !     Loop over cells along the diagonals. Nested threads break up each
@@ -169,7 +175,7 @@ MODULE mkba_sweep_module
 !_______________________________________________________________________
 
       diagonal_loop: DO d = 1, ndiag
-
+  ! *PIP-TODO: Check task distrubution here.
   !$OMP DO SCHEDULE(STATIC,1)
         line_loop: DO n = 1, diag(d)%len
 !_______________________________________________________________________
@@ -303,7 +309,7 @@ MODULE mkba_sweep_module
             psii(:,j,k) = two*psi - psii(:,j,k)
             psij(:,ic,k) = two*psi - psij(:,ic,k)
             IF ( ndimen == 3 ) psik(:,ic,j) = two*psi - psik(:,ic,j)
-            IF ( vdelt/=zero .AND. update_ptr ) THEN
+            IF ( vdelt/=zero .AND. update_ptr(1) ) THEN
               IF ( angcpy == 1 ) THEN
                 ptr_in(:,i,j,k,oct) = two*psi - ptr_in(:,i,j,k,oct)
               ELSE
@@ -392,7 +398,7 @@ MODULE mkba_sweep_module
             psii(:,j,k) = fxhv(:,1) * hv(:,1)
             psij(:,ic,k) = fxhv(:,2) * hv(:,2)
             IF ( ndimen == 3 ) psik(:,ic,j) = fxhv(:,3) * hv(:,3)
-            IF ( vdelt/=zero .AND. update_ptr ) THEN
+            IF ( vdelt/=zero .AND. update_ptr(1) ) THEN
               IF ( angcpy == 1 ) THEN
                 ptr_in(:,i,j,k,oct) = fxhv(:,4) * hv(:,4)
               ELSE
@@ -474,17 +480,27 @@ MODULE mkba_sweep_module
 
       END DO diagonal_loop
   !$OMP BARRIER
+#ifdef SHM
+  CALL shm_barrier
+#endif
 !_______________________________________________________________________
 !
 !     Send data to downstream neighbors. Master of threaded region means
 !     all main level threads do call for send.
 !_______________________________________________________________________
 
+#ifdef SHM
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
       CALL sweep_send_bdry ( g, jd, kd, iop, t, reqs, szreq, nc, nang, &
         ichunk, ny, nz, jb_out, kb_out )
   !$OMP END MASTER
   !$OMP BARRIER
+#ifdef SHM
+  END IF
+  CALL shm_barrier
+#endif
 !_______________________________________________________________________
 !
 !   Close the chunks loop
@@ -496,6 +512,15 @@ MODULE mkba_sweep_module
 !   Reduce the temporary fmint and fmaxt across nested threads
 !_______________________________________________________________________
 
+#ifdef SHM
+  IF ( oct == last_oct ) THEN
+      fmin = MIN( fmin, fmint )
+      fmax = MAX( fmax, fmaxt )
+  END IF
+  CALL glmin ( fmin, comm_shm )
+  CALL glmax ( fmax, comm_shm )
+  CALL shm_barrier
+#else
   !$OMP CRITICAL
     IF ( oct == last_oct ) THEN
       fmin = MIN( fmin, fmint )
@@ -503,6 +528,7 @@ MODULE mkba_sweep_module
     END IF
   !$OMP END CRITICAL
   !$OMP BARRIER
+#endif
 !_______________________________________________________________________
 !_______________________________________________________________________
 

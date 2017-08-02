@@ -28,7 +28,7 @@ MODULE inner_module
 
   USE time_module, ONLY: tinrsrc, tsweeps, wtime
 
-  USE plib_module, ONLY: nthreads, glmax, comm_snap, iproc, root, ichunk
+  USE plib_module
 
   USE thrd_comm_module, ONLY: assign_thrd_set
 
@@ -76,6 +76,9 @@ MODULE inner_module
 !   No need to do inner operations if the group's inners are converged.
 !_______________________________________________________________________
 
+#ifdef SHM
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
 
     CALL wtime ( t1 )
@@ -88,14 +91,27 @@ MODULE inner_module
 
   !$OMP END MASTER
   !$OMP BARRIER
+#ifdef SHM
+  END IF
+  CALL shm_barrier
+#endif
 
     CALL inner_src ( ng_per_thrd, nnstd_used, grp_act(:,t) )
   !$OMP BARRIER
+#ifdef SHM
+  CALL shm_barrier
+#endif
 
+#ifdef SHM
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
     CALL wtime ( t2 )
     tinrsrc = tinrsrc + t2 - t1
   !$OMP END MASTER
+#ifdef SHM
+  END IF
+#endif
 !_______________________________________________________________________
 !
 !   With source computed, set previous copy of flux; new flux moments
@@ -112,17 +128,30 @@ MODULE inner_module
 !   Call for the transport sweep. Check convergence, using threads.
 !_______________________________________________________________________
 
+#ifdef SHM
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
     CALL wtime ( t3 )
   !$OMP END MASTER
+#ifdef SHM
+  END IF
+  CALL shm_barrier
+#endif
 
   !$OMP BARRIER
 
     CALL sweep ( t, do_grp, ng_per_thrd, nnstd_used, grp_act )
   !$OMP BARRIER
-
+#ifdef SHM
+  CALL shm_barrier
+#endif
+!write(*,*) wiproc, "inner", inno
+#ifdef SHM
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
-
+!write(*,*) "inner sweep ", iproc, " grp_act=", grp_act
     CALL wtime ( t4 )
     tsweeps = tsweeps + t4 - t3
 !_______________________________________________________________________
@@ -133,11 +162,17 @@ MODULE inner_module
     do_grp = 1
     WHERE( inrdone ) do_grp = 0
 
+!    write(*,*) 'inner2: do_grp=', do_grp
     CALL assign_thrd_set ( do_grp, ng, ng_per_thrd, 0, nnstd_used,     &
       grp_act )
-
+!write(*,*) "inner assign2 ", iproc, " grp_act=", grp_act
   !$OMP END MASTER
   !$OMP BARRIER
+#ifdef SHM
+  END IF
+  CALL shm_barrier
+#endif
+!write(*,*) wiproc, "inner after", inno
 
     CALL inner_conv ( inno, iits, ng_per_thrd, nnstd_used,             &
       grp_act(:,t) )
@@ -281,11 +316,12 @@ MODULE inner_module
 !   compute max for that group. Need a barrier for the main threads.
 !_______________________________________________________________________
 
+!write(*,*) "inner_conv ", iproc, " grp_act=", grp_act
+
   !$OMP PARALLEL DO NUM_THREADS(nnstd_used) IF(nnstd_used>1)           &
   !$OMP& SCHEDULE(STATIC,1) DEFAULT(SHARED) PRIVATE(n,g)               &
   !$OMP& PROC_BIND(CLOSE)
     DO n = 1, ng_per_thrd
-
 
       g = grp_act(n)
       IF ( g == 0 ) CYCLE
@@ -300,7 +336,8 @@ MODULE inner_module
       df(:,:,:,n) = ABS( flux0(:,:,:,g)/flux0pi(:,:,:,g) - df(:,:,:,n) )
 
       dfmxi(g) = MAXVAL( df(:,:,:,n) )
-
+!write(*,*) "inner ", iproc, " flux0(1**g)", g, flux0(1,:,:,g)
+!write(*,*) "inner ", iproc, " dfmxi(g)", n, g, dfmxi(g)
     END DO
   !$OMP END PARALLEL DO
   !$OMP BARRIER
@@ -310,10 +347,23 @@ MODULE inner_module
 !   are converged and print requested info
 !_______________________________________________________________________
 
+#ifdef SHM
+  CALL shm_barrier
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
 
-    CALL glmax ( dfmxi, ng, comm_snap )
+!write(*,*) "inner ", iproc, " dfmxi=", dfmxi
+#ifdef SHM
+    CALL glmax ( dfmxi, ng, comm_shmgrp )
+#else
+    CALL glmax ( dfmxi, ng, comm_snap)
+#endif
+
     WHERE( dfmxi <= epsi ) inrdone = .TRUE.
+
+!write(*,*) "inner ", iproc, " dfmxi-max", dfmxi
+!write(*,*) "inner ", iproc, " dfmxi-max inrdone=", inrdone
 
     IF ( iproc==root .AND. it_det==1 ) THEN
       DO g = 1, ng
@@ -322,6 +372,9 @@ MODULE inner_module
     END IF
 
   !$OMP END MASTER
+#ifdef SHM
+  END IF
+#endif
 !_______________________________________________________________________
 
     221 FORMAT( 4X, 'Group ', I3, 4X, ' Inner ', I5, 4X, ' Dfmxi ',    &

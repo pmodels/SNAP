@@ -11,7 +11,9 @@
 MODULE control_module
 
   USE global_module, ONLY: i_knd, r_knd, l_knd, zero, one
-
+#ifdef SHM
+  USE plib_module
+#endif
   IMPLICIT NONE
 
   PUBLIC
@@ -69,20 +71,34 @@ MODULE control_module
 ! yzstg(ncor)      - KBA stage in yz plane per starting corner
 !_______________________________________________________________________
 
-  LOGICAL(l_knd) :: otrdone, update_ptr
-
+#ifdef SHM
+  LOGICAL(l_knd), DIMENSION(:), POINTER :: update_ptr
+  LOGICAL(l_knd), DIMENSION(:), POINTER :: inrdone, otrdone
+#else
+  LOGICAL(l_knd), DIMENSION(1) :: update_ptr
+  LOGICAL(l_knd), DIMENSION(1) :: otrdone
   LOGICAL(l_knd), ALLOCATABLE, DIMENSION(:) :: inrdone
-
+#endif
   INTEGER(i_knd) :: ncor, last_oct, corner_sch(2,4)
 
+#ifdef SHM
+  INTEGER(i_knd), DIMENSION(:), POINTER :: gcy ! *PIP: shared copy of cy
+  INTEGER(i_knd), DIMENSION(:), POINTER :: yzstg
+  REAL(r_knd), DIMENSION(:), POINTER :: dfmxo
+#else
   INTEGER(i_knd), ALLOCATABLE, DIMENSION(:) :: yzstg
-
-  REAL(r_knd) :: dt, dfmxo
+  INTEGER(i_knd), DIMENSION(1) :: gcy ! DEBUG USE
+  REAL(r_knd), DIMENSION(1) :: dfmxo
+#endif
+  REAL(r_knd) :: dt
 
   REAL(r_knd), PARAMETER :: tolr=1.0E-12_r_knd
 
+#ifdef SHM
+  REAL(r_knd), DIMENSION(:), POINTER :: dfmxi
+#else
   REAL(r_knd), ALLOCATABLE, DIMENSION(:) :: dfmxi
-
+#endif
 
   CONTAINS
 
@@ -101,18 +117,36 @@ MODULE control_module
 !_______________________________________________________________________
 
     ierr = 0
+#ifdef SHM
+    !* PIP: only updated at setup.
+    ALLOCATE(yzstg(ncor))
+    !* PIP: used in sweep
+    CALL shm_allocate(ng, dfmxi, "dfmxi")
+    CALL shm_allocate(ng, inrdone, "inrdone")
+    !* PIP: shared single logical variable
+    CALL shm_allocate(1, otrdone, "otrdone")
+    CALL shm_allocate(1, dfmxo, "dfmxo")
+    CALL shm_allocate(1, gcy, "gcy")
+    CALL shm_allocate(1, update_ptr, "update_ptr")
+#else
     ALLOCATE( yzstg(ncor), dfmxi(ng), inrdone(ng), STAT=ierr )
     IF ( ierr /= 0 ) RETURN
+#endif
 
     yzstg = 0
 
     dfmxi = -one
     inrdone = .FALSE.
-    dfmxo = -one
-    otrdone = .FALSE.
-    update_ptr = .FALSE.
+    dfmxo(1) = -one
+    otrdone(1) = .FALSE.
+    update_ptr(1) = .FALSE.
 !_______________________________________________________________________
 !_______________________________________________________________________
+
+#ifdef SHM
+  CALL shm_barrier
+#endif
+  CALL plib_dbg_rootprintf("control_allocate done")
 
   END SUBROUTINE control_allocate
 
@@ -126,7 +160,17 @@ MODULE control_module
 !-----------------------------------------------------------------------
 !_______________________________________________________________________
 
+#ifdef SHM
+    DEALLOCATE( yzstg )
+    CALL shm_deallocate(dfmxi)
+    CALL shm_deallocate(inrdone)
+    CALL shm_deallocate(otrdone)
+    CALL shm_deallocate(dfmxo)
+    CALL shm_deallocate(gcy)
+    CALL shm_deallocate(update_ptr)
+#else
     DEALLOCATE( yzstg, dfmxi, inrdone )
+#endif
 !_______________________________________________________________________
 !_______________________________________________________________________
 

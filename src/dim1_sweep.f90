@@ -137,7 +137,7 @@ MODULE dim1_sweep_module
         psi = pc*dinv(:,i)
 
         psii = two*psi - psii
-        IF ( vdelt/=zero .AND. update_ptr )                            &
+        IF ( vdelt/=zero .AND. update_ptr(1) )                            &
           ptr_out(:,i,1,1) = two*psi - ptr_in(:,i,1,1)
 
       ELSE
@@ -195,7 +195,7 @@ MODULE dim1_sweep_module
         psi = pc
 
         psii = fxhv(:,1) * hv(:,1)
-        IF ( vdelt/=zero .AND. update_ptr )                            &
+        IF ( vdelt/=zero .AND. update_ptr(1) )                            &
           ptr_out(:,i,1,1) = fxhv(:,2) * hv(:,2)
 
       END IF

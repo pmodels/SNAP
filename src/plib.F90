@@ -15,6 +15,8 @@ MODULE plib_module
 
   USE time_module, ONLY: wtime
 
+  USE iso_c_binding
+
 #ifdef MPI
   USE mpi
 #endif
@@ -41,7 +43,7 @@ MODULE plib_module
 
   INTERFACE bcast
     MODULE PROCEDURE bcast_i_scalar, bcast_i_1d, bcast_d_scalar,       &
-      bcast_d_1d
+      bcast_d_1d, bcast_l_scalar
   END INTERFACE bcast
 
   INTERFACE psend
@@ -55,6 +57,22 @@ MODULE plib_module
   INTERFACE precv
     MODULE PROCEDURE precv_d_2d, precv_d_3d
   END INTERFACE precv
+
+#ifdef SHM
+  INTERFACE shm_allocate
+    MODULE PROCEDURE shm_allocate_d_1d, shm_allocate_d_2d,             &
+      shm_allocate_d_3d, shm_allocate_d_4d, shm_allocate_d_5d,         &
+      shm_allocate_d_6d, shm_allocate_i_1d, shm_allocate_i_2d,         &
+      shm_allocate_i_3d, shm_allocate_l_1d
+  END INTERFACE shm_allocate
+
+  INTERFACE shm_deallocate
+    MODULE PROCEDURE shm_deallocate_d_1d, shm_deallocate_d_2d,         &
+      shm_deallocate_d_3d, shm_deallocate_d_4d, shm_deallocate_d_5d,   &
+      shm_deallocate_d_6d, shm_deallocate_i_1d, shm_deallocate_i_2d,   &
+      shm_deallocate_i_3d, shm_deallocate_l_1d
+  END INTERFACE shm_deallocate
+#endif
 
   SAVE
 !_______________________________________________________________________
@@ -118,8 +136,16 @@ MODULE plib_module
   INTEGER(i_knd) :: nproc, iproc, comm_snap, comm_space, sproc, ycomm, &
     zcomm, yproc, zproc, ylop, yhip, zlop, zhip, thread_level,         &
     thread_single, thread_funneled, thread_serialized, thread_multiple,&
-    max_threads
+    max_threads, ynproc, znproc,snproc
 
+  INTEGER(i_knd) :: wnproc, wiproc
+
+#ifdef SHM
+  INTEGER(i_knd) :: comm_maxshm, comm_shm, comm_shmgrp
+  INTEGER(i_knd) :: maxshm_nproc, maxshm_iproc,                        &
+    shm_nproc, shm_iproc
+  LOGICAL(l_knd) :: is_shm_master
+#endif
   LOGICAL(l_knd) :: firsty, lasty, firstz, lastz, do_nested,           &
     use_lock=.FALSE.
 
@@ -162,6 +188,16 @@ MODULE plib_module
     thread_funneled   = MPI_THREAD_FUNNELED
     thread_serialized = MPI_THREAD_SERIALIZED
     thread_multiple   = MPI_THREAD_MULTIPLE
+
+#ifdef SHM
+    comm_shm = MPI_COMM_NULL
+    comm_maxshm = MPI_COMM_NULL
+    comm_shmgrp = MPI_COMM_NULL
+#endif
+    comm_snap = MPI_COMM_NULL
+    comm_space = MPI_COMM_NULL
+    ycomm = MPI_COMM_NULL
+    zcomm = MPI_COMM_NULL
 !_______________________________________________________________________
 !
 !   Initialize MPI and return available thread support level. Prefer
@@ -170,7 +206,12 @@ MODULE plib_module
 !   duplicate to comm_snap. Start the timer.
 !_______________________________________________________________________
 
+#ifdef SHM
+    CALL MPI_INIT_THREAD ( thread_single, thread_level, ierr )
+#else
     CALL MPI_INIT_THREAD ( thread_multiple, thread_level, ierr )
+
+#endif
 
     CALL wtime ( t1 )
 
@@ -181,12 +222,22 @@ MODULE plib_module
 !   communicator
 !_______________________________________________________________________
 
+    CALL MPI_COMM_SIZE ( MPI_COMM_WORLD, wnproc, ierr )
+    CALL MPI_COMM_RANK ( MPI_COMM_WORLD, wiproc, ierr )
+
     CALL MPI_COMM_SIZE ( comm_snap, nproc, ierr )
     CALL MPI_COMM_RANK ( comm_snap, iproc, ierr )
 !_______________________________________________________________________
 !
 !   Put a barrier for every process to reach this point.
 !_______________________________________________________________________
+
+#ifdef SHM
+    CALL MPI_COMM_SPLIT_TYPE ( MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0,      &
+      MPI_INFO_NULL, comm_maxshm, ierr )
+    CALL MPI_COMM_SIZE ( comm_maxshm, maxshm_nproc, ierr )
+    CALL MPI_COMM_RANK ( comm_maxshm, maxshm_iproc, ierr )
+#endif
 
     CALL barrier ( comm_snap )
 !_______________________________________________________________________
@@ -245,11 +296,21 @@ MODULE plib_module
 
     dims(1) = npez
     dims(2) = npey
+
     periodic = .FALSE.
     reorder = .TRUE.
 
+#ifdef SHM
+    ! Create topology based on master communicator
+    CALL MPI_CART_CREATE ( comm_shmgrp, 2, dims, periodic, reorder,      &
+      comm_space, ierr )
+#else
     CALL MPI_CART_CREATE ( comm_snap, 2, dims, periodic, reorder,      &
       comm_space, ierr )
+#endif
+    CALL MPI_COMM_RANK ( comm_space, sproc, ierr )
+    CALL MPI_COMM_SIZE ( comm_space, snproc, ierr )
+
 !_______________________________________________________________________
 !
 !   Set up the sub-communicators of the cartesian grid
@@ -258,18 +319,20 @@ MODULE plib_module
     remain(1) = .FALSE.
     remain(2) = .TRUE.
     CALL MPI_CART_SUB ( comm_space, remain, ycomm, ierr )
+    CALL MPI_COMM_RANK ( ycomm, yproc, ierr )
+    CALL MPI_COMM_SIZE ( ycomm, ynproc, ierr )
 
     remain(1) = .TRUE.
     remain(2) = .FALSE.
     CALL MPI_CART_SUB ( comm_space, remain, zcomm, ierr )
-!_______________________________________________________________________
-!
-!   Get comm_space, ycomm, and zcomm ranks
-!_______________________________________________________________________
-
-    CALL MPI_COMM_RANK ( comm_space, sproc, ierr )
-    CALL MPI_COMM_RANK ( ycomm, yproc, ierr )
     CALL MPI_COMM_RANK ( zcomm, zproc, ierr )
+    CALL MPI_COMM_SIZE ( zcomm, znproc, ierr )
+
+    write(*,*) 'iproc=', iproc , '/', nproc,             &
+               'ycomm iproc=', yproc , '/', ynproc,      &
+               'comm_space iproc=', sproc , '/', snproc, &
+               'zcomm iproc=', zproc , '/', znproc
+
 !_______________________________________________________________________
 !
 !   Set some variables used during solution
@@ -306,6 +369,8 @@ MODULE plib_module
       lastz = .FALSE.
       zhip = zproc + 1
     END IF
+
+
 !_______________________________________________________________________
 !_______________________________________________________________________
 
@@ -326,6 +391,38 @@ MODULE plib_module
 
     INTEGER(i_knd) :: ierr
 !_______________________________________________________________________
+#ifdef SHM
+    CALL plib_shm_destroy
+    IF (comm_shm /= MPI_COMM_NULL) THEN
+        CALL MPI_COMM_FREE(comm_shm, ierr)
+        write(*,*) 'comm_shm free'
+    END IF
+    IF (comm_maxshm /= MPI_COMM_NULL) THEN
+        CALL MPI_COMM_FREE(comm_maxshm, ierr)
+        write(*,*) 'comm_maxshm free'
+    END IF
+    IF (comm_shmgrp /= MPI_COMM_NULL) THEN
+        CALL MPI_COMM_FREE(comm_shmgrp, ierr)
+        write(*,*) 'comm_shmgrp free'
+    END IF
+#endif
+
+    IF (zcomm /= MPI_COMM_NULL) THEN
+        CALL MPI_COMM_FREE(zcomm, ierr)
+        write(*,*) 'zcomm free'
+    END IF
+    IF (ycomm /= MPI_COMM_NULL) THEN
+        CALL MPI_COMM_FREE(ycomm, ierr)
+        write(*,*) 'ycomm free'
+    END IF
+    IF (comm_space /= MPI_COMM_NULL) THEN
+        CALL MPI_COMM_FREE(comm_space, ierr)
+        write(*,*) 'comm_space free'
+    END IF
+    IF (comm_snap /= MPI_COMM_NULL) THEN
+        CALL MPI_COMM_FREE(comm_snap, ierr)
+        write(*,*) 'comm_snap free'
+    END IF
 
     CALL MPI_FINALIZE ( ierr )
 !_______________________________________________________________________
@@ -358,7 +455,6 @@ MODULE plib_module
     value = x
 !_______________________________________________________________________
 !_______________________________________________________________________
-
   END SUBROUTINE glmax_i
 
 
@@ -388,6 +484,7 @@ MODULE plib_module
     CALL MPI_ALLREDUCE ( value, x, 1, MPI_DOUBLE_PRECISION, MPI_MAX,   &
       comm, ierr )
     value = x
+
 !_______________________________________________________________________
 !_______________________________________________________________________
 
@@ -450,7 +547,6 @@ MODULE plib_module
     value = x
 !_______________________________________________________________________
 !_______________________________________________________________________
-
   END SUBROUTINE glmin_i
 
 
@@ -482,7 +578,6 @@ MODULE plib_module
     value = x
 !_______________________________________________________________________
 !_______________________________________________________________________
-
   END SUBROUTINE glmin_d
 
 
@@ -514,7 +609,6 @@ MODULE plib_module
     value = x
 !_______________________________________________________________________
 !_______________________________________________________________________
-
   END SUBROUTINE glsum_d
 
 
@@ -545,8 +639,6 @@ MODULE plib_module
       rtproc, comm, ierr )
     value = x
 !_______________________________________________________________________
-!_______________________________________________________________________
-
   END SUBROUTINE rtsum_d_1d
 
 
@@ -576,7 +668,6 @@ MODULE plib_module
     CALL MPI_BCAST ( value, 1, MPI_INTEGER, bproc, comm, ierr )
 !_______________________________________________________________________
 !_______________________________________________________________________
-
   END SUBROUTINE bcast_i_scalar
 
 
@@ -607,7 +698,6 @@ MODULE plib_module
       ierr )
 !_______________________________________________________________________
 !_______________________________________________________________________
-
   END SUBROUTINE bcast_i_1d
 
 
@@ -637,7 +727,6 @@ MODULE plib_module
     CALL MPI_BCAST ( value, 1, MPI_DOUBLE_PRECISION, bproc, comm, ierr )
 !_______________________________________________________________________
 !_______________________________________________________________________
-
   END SUBROUTINE bcast_d_scalar
 
 
@@ -668,9 +757,35 @@ MODULE plib_module
       ierr )
 !_______________________________________________________________________
 !_______________________________________________________________________
-
   END SUBROUTINE bcast_d_1d
 
+  SUBROUTINE bcast_l_scalar ( value, comm, bproc )
+
+!-----------------------------------------------------------------------
+!
+! Broadcast (logical scalar). Use specified communicator
+! and casting proc.
+!
+!-----------------------------------------------------------------------
+
+    INTEGER(i_knd), INTENT(IN) :: comm, bproc
+
+    LOGICAL(l_knd), INTENT(INOUT) :: value
+!_______________________________________________________________________
+!
+!   Local variables
+!_______________________________________________________________________
+
+    INTEGER(i_knd) :: ierr
+!_______________________________________________________________________
+
+    IF ( nproc == 1 ) RETURN
+    IF ( comm == MPI_COMM_NULL ) RETURN
+
+    CALL MPI_BCAST ( value, 1, MPI_LOGICAL, bproc, comm, ierr )
+!_______________________________________________________________________
+!_______________________________________________________________________
+  END SUBROUTINE bcast_l_scalar
 
   SUBROUTINE psend_d_2d ( proc, myproc, d1, d2, value, comm, mtag )
 
@@ -1017,6 +1132,10 @@ MODULE plib_module
     REAL(r_knd), DIMENSION(dlen), INTENT(IN) :: value
   END SUBROUTINE bcast_d_1d
 
+  SUBROUTINE bcast_l_scalar ( value, comm, bproc )
+    INTEGER(i_knd), INTENT(IN) :: comm, bproc
+    LOGICAL(l_knd), INTENT(IN) :: value
+  END SUBROUTINE bcast_l_scalar
 
   SUBROUTINE psend_d_2d ( proc, myproc, d1, d2, value, comm, mtag )
     INTEGER(i_knd), INTENT(IN) :: proc, myproc, d1, d2, comm, mtag
@@ -1090,6 +1209,9 @@ MODULE plib_module
 !_______________________________________________________________________
 
     INTEGER(i_knd) :: max_threads
+#if defined(SHM)
+    INTEGER(i_knd) :: is_shm_master_int
+#endif
 !_______________________________________________________________________
 
     ierr = 0
@@ -1122,6 +1244,44 @@ MODULE plib_module
 !_______________________________________________________________________
 
     CALL plock_omp ( 'init', nthreads )
+
+#elif defined(SHM)
+    max_threads = maxshm_nproc
+    IF ( nthreads > max_threads ) THEN
+      ierr = 1
+      nthreads = max_threads
+    END IF
+    do_nested = .FALSE.
+
+    ! Create local shm communicator (same as a thread team)
+    CALL MPI_COMM_SPLIT ( comm_maxshm, maxshm_iproc/nthreads,  maxshm_iproc,  &
+      comm_shm, ierr )
+    CALL MPI_COMM_SIZE ( comm_shm, shm_nproc, ierr )
+    CALL MPI_COMM_RANK ( comm_shm, shm_iproc, ierr )
+
+    IF ( shm_iproc > 0 ) THEN
+        is_shm_master = .FALSE.
+    ELSE
+        is_shm_master = .TRUE.
+    END IF
+
+    ! Create group PIP communicator, overwrite comm_snap.iproc/nproc
+    ! Consist of PIPs with the same local id across nodes. Thus each
+    ! communicator should be able to build consistant topology.
+    CALL MPI_COMM_SPLIT ( MPI_COMM_WORLD, shm_iproc, iproc,                  &
+      comm_shmgrp, ierr )
+    CALL MPI_COMM_SIZE ( comm_shmgrp, nproc, ierr )
+    CALL MPI_COMM_RANK ( comm_shmgrp, iproc, ierr )
+
+    write(*,*) 'world iproc=', wiproc , '/', wnproc,   &
+               'comm_shmgrp iproc=', iproc , '/', nproc,  &
+               'comm_maxshm iproc=', maxshm_iproc , '/', maxshm_nproc, &
+               'comm_shm iproc=', shm_iproc, '/', shm_nproc, &
+               'is_shm_master', is_shm_master
+
+#ifdef SHM
+    CALL plib_shm_init(comm_shm)
+#endif
 
 #else
 
@@ -1221,6 +1381,291 @@ MODULE plib_module
     thread_num = 0
   END FUNCTION thread_num
 
+
+
+#endif
+
+#ifdef SHM
+  SUBROUTINE shm_barrier ()
+    INTEGER(i_knd) :: ierr
+    CALL plib_shm_barrier
+  END SUBROUTINE shm_barrier
+
+  SUBROUTINE shm_deallocate_l_1d(value)
+    LOGICAL(l_knd), DIMENSION(:), POINTER, INTENT(IN) :: value
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+
+    IF (ASSOCIATED(value) .EQV. .TRUE.) THEN
+      p = C_LOC(value(1))
+      CALL plib_shm_deallocate (p)
+    END IF
+  END SUBROUTINE shm_deallocate_l_1d
+
+  SUBROUTINE shm_deallocate_d_1d(value)
+    REAL(r_knd), DIMENSION(:), POINTER, INTENT(IN) :: value
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+
+    IF (ASSOCIATED(value) .EQV. .TRUE.) THEN
+      p = C_LOC(value(1))
+      CALL plib_shm_deallocate (p)
+    END IF
+  END SUBROUTINE shm_deallocate_d_1d
+
+  SUBROUTINE shm_deallocate_d_2d(value)
+    REAL(r_knd), DIMENSION(:,:), POINTER, INTENT(IN) :: value
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+
+    IF (ASSOCIATED(value) .EQV. .TRUE.) THEN
+      p = C_LOC(value(1,1))
+      CALL plib_shm_deallocate (p)
+    END IF
+  END SUBROUTINE shm_deallocate_d_2d
+
+  SUBROUTINE shm_deallocate_d_3d(value)
+    REAL(r_knd), DIMENSION(:,:,:), POINTER, INTENT(IN) :: value
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+
+    IF (ASSOCIATED(value) .EQV. .TRUE.) THEN
+      p = C_LOC(value(1,1,1))
+      CALL plib_shm_deallocate (p)
+    END IF
+  END SUBROUTINE shm_deallocate_d_3d
+
+  SUBROUTINE shm_deallocate_d_4d(value)
+    REAL(r_knd), DIMENSION(:,:,:,:), POINTER, INTENT(IN) :: value
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+
+    IF (ASSOCIATED(value) .EQV. .TRUE.) THEN
+      p = C_LOC(value(1,1,1,1))
+      CALL plib_shm_deallocate (p)
+    END IF
+  END SUBROUTINE shm_deallocate_d_4d
+
+  SUBROUTINE shm_deallocate_d_5d(value)
+    REAL(r_knd), DIMENSION(:,:,:,:,:), POINTER, INTENT(IN) :: value
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+
+    IF (ASSOCIATED(value) .EQV. .TRUE.) THEN
+      p = C_LOC(value(1,1,1,1,1))
+      CALL plib_shm_deallocate (p)
+    END IF
+  END SUBROUTINE shm_deallocate_d_5d
+
+  SUBROUTINE shm_deallocate_d_6d(value)
+    REAL(r_knd), DIMENSION(:,:,:,:,:,:), POINTER, INTENT(IN) :: value
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+
+    IF (ASSOCIATED(value) .EQV. .TRUE.) THEN
+      p = C_LOC(value(1,1,1,1,1,1))
+      CALL plib_shm_deallocate (p)
+    END IF
+  END SUBROUTINE shm_deallocate_d_6d
+
+  SUBROUTINE shm_deallocate_i_1d(value)
+    INTEGER(i_knd), DIMENSION(:), POINTER, INTENT(IN) :: value
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+
+    IF (ASSOCIATED(value) .EQV. .TRUE.) THEN
+      p = C_LOC(value(1))
+      CALL plib_shm_deallocate (p)
+    END IF
+  END SUBROUTINE shm_deallocate_i_1d
+
+  SUBROUTINE shm_deallocate_i_2d(value)
+    INTEGER(i_knd), DIMENSION(:,:), POINTER, INTENT(IN) :: value
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+
+    IF (ASSOCIATED(value) .EQV. .TRUE.) THEN
+      p = C_LOC(value(1,1))
+      CALL plib_shm_deallocate (p)
+    END IF
+  END SUBROUTINE shm_deallocate_i_2d
+
+  SUBROUTINE shm_deallocate_i_3d(value)
+    INTEGER(i_knd), DIMENSION(:,:,:), POINTER, INTENT(IN) :: value
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+
+    IF (ASSOCIATED(value) .EQV. .TRUE.) THEN
+      p = C_LOC(value(1,1,1))
+      CALL plib_shm_deallocate (p)
+    END IF
+  END SUBROUTINE shm_deallocate_i_3d
+
+  SUBROUTINE shm_allocate_cp(dlen, type_sz, cptr, str)
+    INTEGER(i_knd), INTENT(IN) :: dlen
+    INTEGER(C_SIZE_T), INTENT(IN) :: type_sz
+    TYPE(C_PTR), INTENT(INOUT) :: cptr
+    CHARACTER(*), INTENT(IN) :: str
+
+    ! Allocate and bcast
+    cptr = C_NULL_PTR
+    CALL plib_shm_allocate (type_sz * dlen, cptr, str//C_NULL_CHAR)
+  END SUBROUTINE shm_allocate_cp
+
+  SUBROUTINE shm_allocate_l_1d(d1, value, str)
+    INTEGER(i_knd), INTENT(IN) :: d1
+    LOGICAL(l_knd), DIMENSION(:), POINTER, INTENT(INOUT) :: value
+    CHARACTER(*), INTENT(IN) :: str
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+    LOGICAL(l_knd) :: type
+
+    CALL shm_allocate_cp(d1, SIZEOF(type), p, str)
+    CALL C_F_POINTER(p, value, [d1])
+  END SUBROUTINE shm_allocate_l_1d
+
+  SUBROUTINE shm_allocate_d_1d(d1, value, str)
+    INTEGER(i_knd), INTENT(IN) :: d1
+    REAL(r_knd), DIMENSION(:), POINTER, INTENT(INOUT) :: value
+    CHARACTER(*), INTENT(IN) :: str
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+    REAL(r_knd) :: type
+
+    CALL shm_allocate_cp(d1, SIZEOF(type), p, str)
+    CALL C_F_POINTER(p, value, [d1])
+!    write(*,*) 'wiproc', wiproc, 'shm_iproc', shm_iproc, 'allocate(d,1d)', d1
+  END SUBROUTINE shm_allocate_d_1d
+
+  SUBROUTINE shm_allocate_d_2d(d1, d2, value, str)
+    INTEGER(i_knd), INTENT(IN) :: d1, d2
+    REAL(r_knd), DIMENSION(:,:), POINTER, INTENT(INOUT) :: value
+    CHARACTER(*), INTENT(IN) :: str
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+    REAL(r_knd) :: type
+
+    CALL shm_allocate_cp(d1 * d2, SIZEOF(type), p, str)
+    CALL C_F_POINTER(p, value, [d1, d2])
+!    write(*,*) 'wiproc', wiproc, 'shm_iproc', shm_iproc, 'allocate(d,2d)',     &
+!        d1, d2
+  END SUBROUTINE shm_allocate_d_2d
+
+  SUBROUTINE shm_allocate_d_3d(d1, d2, d3, value, str)
+    INTEGER(i_knd), INTENT(IN) :: d1, d2, d3
+    REAL(r_knd), DIMENSION(:,:,:), POINTER, INTENT(INOUT) :: value
+    CHARACTER(*), INTENT(IN) :: str
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+    REAL(r_knd) :: type
+
+    CALL shm_allocate_cp(d1 * d2 * d3, SIZEOF(type), p, str)
+    CALL C_F_POINTER(p, value, [d1, d2, d3])
+!    write(*,*) 'wiproc', wiproc, 'shm_iproc', shm_iproc, 'allocate(d,3d)',     &
+!        d1, d2, d3
+  END SUBROUTINE shm_allocate_d_3d
+
+  SUBROUTINE shm_allocate_d_4d(d1, d2, d3, d4, value, str)
+    INTEGER(i_knd), INTENT(IN) :: d1, d2, d3, d4
+    REAL(r_knd), DIMENSION(:,:,:,:), POINTER, INTENT(INOUT) :: value
+    CHARACTER(*), INTENT(IN) :: str
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+    REAL(r_knd) :: type
+
+    CALL shm_allocate_cp(d1 * d2 * d3 * d4, SIZEOF(type), p, str)
+    CALL C_F_POINTER(p, value, [d1, d2, d3, d4])
+!    write(*,*) 'wiproc', wiproc, 'shm_iproc', shm_iproc, 'allocate(d,4d)',     &
+!        d1, d2, d3, d4
+  END SUBROUTINE shm_allocate_d_4d
+
+  SUBROUTINE shm_allocate_d_5d(d1, d2, d3, d4, d5, value, str)
+    INTEGER(i_knd), INTENT(IN) :: d1, d2, d3, d4, d5
+    REAL(r_knd), DIMENSION(:,:,:,:,:), POINTER, INTENT(INOUT) :: value
+    CHARACTER(*), INTENT(IN) :: str
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+    REAL(r_knd) :: type
+
+    CALL shm_allocate_cp(d1 * d2 * d3 * d4 * d5, SIZEOF(type), p, str)
+    CALL C_F_POINTER(p, value, [d1, d2, d3, d4, d5])
+!    write(*,*) 'wiproc', wiproc, 'shm_iproc', shm_iproc, 'allocate(d,5d)',     &
+!        d1, d2, d3, d4, d5
+  END SUBROUTINE shm_allocate_d_5d
+
+  SUBROUTINE shm_allocate_d_6d(d1, d2, d3, d4, d5, d6, value, str)
+    INTEGER(i_knd), INTENT(IN) :: d1, d2, d3, d4, d5, d6
+    REAL(r_knd), DIMENSION(:,:,:,:,:,:), POINTER, INTENT(INOUT) :: value
+    CHARACTER(*), INTENT(IN) :: str
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+    REAL(r_knd) :: type
+
+    CALL shm_allocate_cp(d1 * d2 * d3 * d4 * d5 * d6, SIZEOF(type), p, str)
+    CALL C_F_POINTER(p, value, [d1, d2, d3, d4, d5, d6])
+!    write(*,*) 'wiproc', wiproc, 'shm_iproc', shm_iproc, 'allocate(d,6d)',     &
+!        d1, d2, d3, d4, d5, d6
+  END SUBROUTINE shm_allocate_d_6d
+
+  SUBROUTINE shm_allocate_i_1d(d1, value, str)
+    INTEGER(i_knd), INTENT(IN) :: d1
+    INTEGER(i_knd), DIMENSION(:), POINTER, INTENT(INOUT) :: value
+    CHARACTER(*), INTENT(IN) :: str
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+    INTEGER(i_knd) :: type
+
+    CALL shm_allocate_cp(d1, SIZEOF(type), p, str)
+    CALL C_F_POINTER(p, value, [d1])
+!    write(*,*) 'wiproc', wiproc, 'shm_iproc', shm_iproc, 'allocate(i,1d)', d1
+  END SUBROUTINE shm_allocate_i_1d
+
+  SUBROUTINE shm_allocate_i_2d(d1, d2, value, str)
+    INTEGER(i_knd), INTENT(IN) :: d1, d2
+    INTEGER(i_knd), DIMENSION(:,:), POINTER, INTENT(INOUT) :: value
+    CHARACTER(*), INTENT(IN) :: str
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+    INTEGER(i_knd) :: type
+
+    CALL shm_allocate_cp(d1 * d2, SIZEOF(type), p, str)
+    CALL C_F_POINTER(p, value, [d1, d2])
+!    write(*,*) 'wiproc', wiproc, 'shm_iproc', shm_iproc, 'allocate(i,1d)', d1
+  END SUBROUTINE shm_allocate_i_2d
+
+  SUBROUTINE shm_allocate_i_3d(d1, d2, d3, value, str)
+    INTEGER(i_knd), INTENT(IN) :: d1, d2, d3
+    INTEGER(i_knd), DIMENSION(:,:,:), POINTER, INTENT(INOUT) :: value
+    CHARACTER(*), INTENT(IN) :: str
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+    INTEGER(i_knd) :: type
+
+    CALL shm_allocate_cp(d1 * d2 * d3, SIZEOF(type), p, str)
+    CALL C_F_POINTER(p, value, [d1, d2, d3])
+!    write(*,*) 'wiproc', wiproc, 'shm_iproc', shm_iproc, 'allocate(i,3d)',     &
+!        d1, d2, d3
+  END SUBROUTINE shm_allocate_i_3d
 #endif
 
 

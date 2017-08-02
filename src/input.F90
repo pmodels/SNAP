@@ -248,11 +248,19 @@ MODULE input_module
       CALL print_error ( ounit, error )
     END IF
 
+#ifdef SHM
+    IF ( npey*npez*nthreads /= nproc ) THEN
+      ierr = ierr + 1
+      error = '***ERROR: INPUT_CHECK: NPEY*NPEZ*nthreads must equal MPI NPROC'
+      CALL print_error ( ounit, error )
+    END IF
+#else
     IF ( npey*npez /= nproc ) THEN
       ierr = ierr + 1
       error = '***ERROR: INPUT_CHECK: NPEY*NPEZ must equal MPI NPROC'
       CALL print_error ( ounit, error )
     END IF
+#endif
 
     IF ( ichunk > nx ) THEN
       ichunk = nx

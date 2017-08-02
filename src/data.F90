@@ -12,6 +12,10 @@ MODULE data_module
 
   USE global_module, ONLY: i_knd, r_knd, zero
 
+#ifdef SHM
+  USE plib_module
+#endif
+
   IMPLICIT NONE
 
   PUBLIC
@@ -49,7 +53,17 @@ MODULE data_module
 !_______________________________________________________________________
 
   INTEGER(i_knd) :: nmat=1
+#ifdef SHM
+  INTEGER(i_knd), DIMENSION(:,:,:), POINTER :: mat
 
+  REAL(r_knd), DIMENSION(:), POINTER :: v, vdelt
+
+  REAL(r_knd), DIMENSION(:,:), POINTER :: sigt, siga, sigs
+
+  REAL(r_knd), DIMENSION(:,:,:,:), POINTER :: qi, slgg
+
+  REAL(r_knd), DIMENSION(:,:,:,:,:,:), POINTER :: qim
+#else
   INTEGER(i_knd), ALLOCATABLE, DIMENSION(:,:,:) :: mat
 
   REAL(r_knd), ALLOCATABLE, DIMENSION(:) :: v, vdelt
@@ -59,7 +73,7 @@ MODULE data_module
   REAL(r_knd), ALLOCATABLE, DIMENSION(:,:,:,:) :: qi, slgg
 
   REAL(r_knd), ALLOCATABLE, DIMENSION(:,:,:,:,:,:) :: qim
-
+#endif
 
   CONTAINS
 
@@ -90,7 +104,11 @@ MODULE data_module
     istat = 0
 
     IF ( timedep == 1 ) THEN
+#ifdef SHM
+      CALL shm_allocate(ng, v, "v")
+#else
       ALLOCATE( v(ng), STAT=istat )
+#endif
     ELSE
       ALLOCATE( v(0), STAT=istat )
     END IF
@@ -103,8 +121,12 @@ MODULE data_module
 !   2-D/3-D.
 !_______________________________________________________________________
 
+#ifdef SHM
+    CALL shm_allocate(nx, ny, nz, mat, "mat")
+#else
     ALLOCATE( mat(nx,ny,nz), STAT=istat )
     IF ( istat /= 0 ) RETURN
+#endif
 
     mat = 1
 !_______________________________________________________________________
@@ -116,13 +138,22 @@ MODULE data_module
 !_______________________________________________________________________
 
     IF ( src_opt < 3 ) THEN
+#ifdef SHM
+      CALL shm_allocate(nx,ny,nz,ng,qi,"qi")
+#else
       ALLOCATE( qi(nx,ny,nz,ng), qim(0,0,0,0,0,0), STAT=istat )
       IF ( istat /= 0 ) RETURN
+#endif
       qi = zero
     ELSE
+#ifdef SHM
+      CALL shm_allocate(nx,ny,nz,ng,qi,"qi")
+      CALL shm_allocate(nang,nx,ny,nz,noct,ng,qim,"qim")
+#else
       ALLOCATE( qi(nx,ny,nz,ng), qim(nang,nx,ny,nz,noct,ng),           &
         STAT=istat )
       IF ( istat /= 0 ) RETURN
+#endif
       qi = zero
       qim = zero
     END IF
@@ -130,10 +161,16 @@ MODULE data_module
 !
 !   Allocate mock cross sections
 !_______________________________________________________________________
-
+#ifdef SHM
+    CALL shm_allocate(nmat,ng,sigt,"sigt")
+    CALL shm_allocate(nmat,ng,siga,"siga")
+    CALL shm_allocate(nmat,ng,sigs,"sigs")
+    CALL shm_allocate(nmat,nmom,ng,ng,slgg,"slgg")
+#else
     ALLOCATE( sigt(nmat,ng), siga(nmat,ng), sigs(nmat,ng),             &
       slgg(nmat,nmom,ng,ng), STAT=istat )
     IF ( istat /= 0 ) RETURN
+#endif
 
     sigt = zero
     siga = zero
@@ -144,12 +181,21 @@ MODULE data_module
 !   Allocate the vdelt array
 !_______________________________________________________________________
 
+#ifdef SHM
+    CALL shm_allocate(ng,vdelt,"vdelt")
+#else
     ALLOCATE( vdelt(ng), STAT=istat )
     IF ( istat /= 0 ) RETURN
+#endif
 
     vdelt = zero
 !_______________________________________________________________________
 !_______________________________________________________________________
+
+#ifdef SHM
+  CALL shm_barrier
+#endif
+  CALL plib_dbg_rootprintf("data_allocate done")
 
   END SUBROUTINE data_allocate
 
@@ -163,12 +209,24 @@ MODULE data_module
 !-----------------------------------------------------------------------
 !_______________________________________________________________________
 
+#ifdef SHM
+    CALL shm_deallocate(v)
+    CALL shm_deallocate(mat)
+    CALL shm_deallocate(qi)
+    CALL shm_deallocate(qim)
+    CALL shm_deallocate(sigt)
+    CALL shm_deallocate(siga)
+    CALL shm_deallocate(sigs)
+    CALL shm_deallocate(slgg)
+    CALL shm_deallocate(vdelt)
+#else
     DEALLOCATE( v )
     DEALLOCATE( mat )
     DEALLOCATE( qi, qim )
     DEALLOCATE( sigt, siga, sigs )
     DEALLOCATE( slgg )
     DEALLOCATE( vdelt )
+#endif
 !_______________________________________________________________________
 !_______________________________________________________________________
 

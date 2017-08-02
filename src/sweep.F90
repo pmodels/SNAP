@@ -21,7 +21,7 @@ MODULE sweep_module
 
   USE solvar_module, ONLY: flkx, flky, flkz, fmin, fmax
 
-  USE plib_module, ONLY: nthreads, waitinit
+  USE plib_module
 
   USE thrd_comm_module, ONLY: assign_thrd_set, sweep_wait_bdry
 
@@ -68,28 +68,39 @@ MODULE sweep_module
 !   swp_typ is 0. Apply nested threads to mini-KBA if swp_typ is 1.
 !_______________________________________________________________________
 
+#ifdef SHM
+  IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
   !$OMP MASTER
 
     do_grp = 1
     WHERE ( inrdone ) do_grp = 0
 
+!    write(*,*) 'sweep: do_grp=', do_grp
     CALL assign_thrd_set ( do_grp, ng, ng_per_thrd, ndiag, nnstd_used, &
       grp_act )
 
   !$OMP END MASTER
   !$OMP BARRIER
+#ifdef SHM
+  END IF
+  CALL shm_barrier
+#endif
+
 !_______________________________________________________________________
 !
 !   Each thread initializes the reqs (send request) array for
 !   asynchronous sends.
 !_______________________________________________________________________
 
+    ! *PIP: thread/PIP local variable
     CALL waitinit ( reqs, SIZE( reqs ) )
 !_______________________________________________________________________
 !
 !   Clean up and initialize some values.
 !_______________________________________________________________________
 
+    ! *PIP: each thread/PIP is taking a different t
     clean_loop: DO n = 1, ng_per_thrd
 
       g = grp_act(n,t)
@@ -121,8 +132,8 @@ MODULE sweep_module
 !_______________________________________________________________________
 
       grp_loop: DO n = 1, ng_per_thrd
-
         g = grp_act(n,t)
+        !write (*,*) 'sweep corner', corner, 'n', n, 't', t, 'start', jd, kd
 !_______________________________________________________________________
 !
 !       Sweep all the chunks of an octant pair (+/- x-dir).
@@ -137,10 +148,10 @@ MODULE sweep_module
       END DO grp_loop
 
     END DO corner_loop
-
-!   Complete last asynchronous sends
-    CALL sweep_wait_bdry ( jd, kd, t, reqs, SIZE( reqs ))
   !$OMP END PARALLEL
+
+  !   Complete last asynchronous sends
+  CALL sweep_wait_bdry ( jd, kd, t, reqs, SIZE( reqs ))
 !_______________________________________________________________________
 !_______________________________________________________________________
 

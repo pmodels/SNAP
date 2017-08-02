@@ -22,6 +22,9 @@ MODULE mms_module
 
   USE plib_module, ONLY: yproc, zproc, iproc, root, glmax, glmin,      &
     comm_snap, glsum
+#ifdef SHM
+  USE plib_module
+#endif
 
   IMPLICIT NONE
 
@@ -47,14 +50,23 @@ MODULE mms_module
 !
 !_______________________________________________________________________
 
-  REAL(r_knd) :: a, b, c
+#ifdef SHM
+  REAL(r_knd), DIMENSION(:), POINTER :: a, b, c
+
+  REAL(r_knd), DIMENSION(:), POINTER :: ib, jb, kb
+
+  REAL(r_knd), DIMENSION(:,:,:,:), POINTER, PUBLIC :: ref_flux
+
+  REAL(r_knd), DIMENSION(:,:,:,:,:), POINTER, PUBLIC :: ref_fluxm
+#else
+  REAL(r_knd), DIMENSION(1) :: a, b, c
 
   REAL(r_knd), ALLOCATABLE, DIMENSION(:) :: ib, jb, kb
 
   REAL(r_knd), ALLOCATABLE, DIMENSION(:,:,:,:), PUBLIC :: ref_flux
 
   REAL(r_knd), ALLOCATABLE, DIMENSION(:,:,:,:,:), PUBLIC :: ref_fluxm
-
+#endif
   
   CONTAINS
 
@@ -93,9 +105,10 @@ MODULE mms_module
     ib(1) = zero
     jb(1) = yproc*ny*dy
     kb(1) = zproc*nz*dz
-    a = zero; b = zero; c = zero
+    a(1) = zero; b(1) = zero; c(1) = zero
 
     CALL mms_cells
+    CALL plib_dbg_rootprintf("mms_cells done")
 !_______________________________________________________________________
 !
 !   Compute the cell-average manufactured solution according to src_opt.
@@ -114,7 +127,7 @@ MODULE mms_module
     END IF
 !_______________________________________________________________________
 !_______________________________________________________________________
-
+  CALL plib_dbg_rootprintf("mms_setup done")
   END SUBROUTINE mms_setup
 
 
@@ -134,15 +147,29 @@ MODULE mms_module
     ierr = 0
     error = ' '
 
+#ifdef SHM
+    CALL plib_dbg_printf("mms_allocate")
+
+    CALL shm_allocate(nx,ny,nz,ng, ref_flux, "ref_flux")
+    CALL shm_allocate(cmom-1,nx,ny,nz,ng, ref_fluxm, "ref_fluxm")
+    CALL shm_allocate(nx+1, ib, "ib")
+    CALL shm_allocate(ny+1, jb, "jb")
+    CALL shm_allocate(nz+1, kb, "kb")
+
+    ! *PIP: shared variable
+    CALL shm_allocate(1, a, "a")
+    CALL shm_allocate(1, b, "b")
+    CALL shm_allocate(1, c, "c")
+#else
     ALLOCATE( ref_flux(nx,ny,nz,ng), ref_fluxm(cmom-1,nx,ny,nz,ng),    &
       STAT=ierr )
     IF ( ierr /= 0 ) RETURN
+    ALLOCATE( ib(nx+1), jb(ny+1), kb(nz+1), STAT= ierr )
+    IF ( ierr /= 0 ) RETURN
+#endif
 
     ref_flux = zero
     ref_fluxm = zero
-
-    ALLOCATE( ib(nx+1), jb(ny+1), kb(nz+1), STAT= ierr )
-    IF ( ierr /= 0 ) RETURN
 
     ib = zero
     jb = zero
@@ -161,12 +188,21 @@ MODULE mms_module
 !
 !-----------------------------------------------------------------------
 !_______________________________________________________________________
+#ifdef SHM
+    CALL plib_dbg_printf("mms_deallocate")
 
+    IF (ASSOCIATED(ref_flux)) CALL shm_deallocate(ref_flux)
+    IF (ASSOCIATED(ref_fluxm)) CALL shm_deallocate(ref_fluxm)
+    IF (ASSOCIATED(ib)) CALL shm_deallocate(ib)
+    IF (ASSOCIATED(jb)) CALL shm_deallocate(jb)
+    IF (ASSOCIATED(kb)) CALL shm_deallocate(kb)
+#else
     IF ( ALLOCATED( ref_flux ) ) DEALLOCATE( ref_flux )
     IF ( ALLOCATED( ref_fluxm ) ) DEALLOCATE( ref_fluxm )
     IF ( ALLOCATED( ib ) ) DEALLOCATE( ib )
     IF ( ALLOCATED( jb ) ) DEALLOCATE( jb )
     IF ( ALLOCATED( kb ) ) DEALLOCATE( kb )
+#endif
 !_______________________________________________________________________
 !_______________________________________________________________________
 
@@ -188,6 +224,11 @@ MODULE mms_module
     INTEGER(i_knd) :: i, j, k
 !_______________________________________________________________________
 
+!#ifdef SHM
+!    IF ( is_shm_master .EQV. .TRUE. ) THEN
+!    CALL plib_dbg_printf("mms_cells")
+!#endif
+
     DO i = 1, nx
       ib(i+1) = ib(i) + dx
     END DO
@@ -207,13 +248,15 @@ MODULE mms_module
     END IF
 
     IF ( src_opt == 3 ) THEN
-      a = pi/lx
-      IF ( ndimen > 1 ) b = pi/ly
-      IF ( ndimen > 2 ) c = pi/lz
+      a(1) = pi/lx
+      IF ( ndimen > 1 ) b(1) = pi/ly
+      IF ( ndimen > 2 ) c(1) = pi/lz
     END IF
 !_______________________________________________________________________
 !_______________________________________________________________________
-
+!#ifdef SHM
+!    END IF
+!#endif
   END SUBROUTINE mms_cells
 
 
@@ -248,11 +291,15 @@ MODULE mms_module
 !   Get all the integrations done by dimension separately
 !_______________________________________________________________________
 
-    CALL mms_trigint ( 'COS', nx, a, dx, ib, tx )
+#ifdef SHM
+    IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
+
+    CALL mms_trigint ( 'COS', nx, a(1), dx, ib, tx )
     IF ( ndimen > 1 ) THEN
-      CALL mms_trigint ( 'COS', ny, b, dy, jb, ty )
+      CALL mms_trigint ( 'COS', ny, b(1), dy, jb, ty )
       IF ( ndimen > 2 ) THEN
-        CALL mms_trigint ( 'COS', nz, c, dz, kb, tz )
+        CALL mms_trigint ( 'COS', nz, c(1), dz, kb, tz )
       ELSE
         tz = one
       END IF
@@ -296,7 +343,12 @@ MODULE mms_module
     END DO
 !_______________________________________________________________________
 !_______________________________________________________________________
+!write(*,*) "mms_flux_1 ref_fluxm=", ref_fluxm
+!write(*,*) "mms_flux_1 ref_flux=", ref_flux
 
+#ifdef SHM
+    END IF
+#endif
   END SUBROUTINE mms_flux_1
 
 
@@ -379,17 +431,17 @@ MODULE mms_module
 !   dimension.
 !_______________________________________________________________________
 
-    CALL mms_trigint ( 'COS', nx, a, dx, ib, cx )
-    CALL mms_trigint ( 'SIN', nx, a, dx, ib, sx )
+    CALL mms_trigint ( 'COS', nx, a(1), dx, ib, cx )
+    CALL mms_trigint ( 'SIN', nx, a(1), dx, ib, sx )
 
     IF ( ndimen > 1 ) THEN
 
-      CALL mms_trigint ( 'COS', ny, b, dy, jb, cy )
-      CALL mms_trigint ( 'SIN', ny, b, dy, jb, sy )
+      CALL mms_trigint ( 'COS', ny, b(1), dy, jb, cy )
+      CALL mms_trigint ( 'SIN', ny, b(1), dy, jb, sy )
 
       IF ( ndimen > 2 ) THEN
-        CALL mms_trigint ( 'COS', nz, c, dz, kb, cz )
-        CALL mms_trigint ( 'SIN', nz, c, dz, kb, sz )
+        CALL mms_trigint ( 'COS', nz, c(1), dz, kb, cz )
+        CALL mms_trigint ( 'SIN', nz, c(1), dz, kb, sz )
       ELSE
         cz = one
         sz = zero
@@ -403,6 +455,7 @@ MODULE mms_module
       sz = zero
 
     END IF
+
 !_______________________________________________________________________
 !
 !   Start computing angular MMS source. Loop over dimensions according
@@ -410,10 +463,13 @@ MODULE mms_module
 !   Then loop over scattering terms. If threads are available, use them
 !   on this larger group loop to help speed up job.
 !_______________________________________________________________________
-
+!OMP-NOTE: 1 region
   !$OMP PARALLEL DO SCHEDULE(DYNAMIC,1) DEFAULT(SHARED)                &
   !$OMP& PRIVATE(g,kd,ks,jd,js,id,is,n,k,j,i,m,gp,lm,l,ll)
     DO g = 1, ng
+#ifdef SHM
+      IF (MOD(g, shm_nproc) == shm_iproc) THEN
+#endif
       DO kd = 1, MAX( ndimen-1, 1 )
         ks = -one
         IF ( kd == 2 ) ks = one
@@ -458,14 +514,23 @@ MODULE mms_module
           END DO
         END DO
       END DO
+#ifdef SHM
+    END IF
+#endif
     END DO
   !$OMP END PARALLEL DO
+#ifdef SHM
+   CALL shm_barrier
+#endif
 !_______________________________________________________________________
 !
 !   Time-dependent problems have a time-independent source term that
 !   can be stored in qi.
 !_______________________________________________________________________
 
+#ifdef SHM
+    IF ( is_shm_master .EQV. .TRUE. ) THEN
+#endif
     IF ( timedep == 1 ) THEN
       DO g = 1, ng
         qi(:,:,:,g) = ref_flux(:,:,:,g) / v(g)
@@ -473,7 +538,9 @@ MODULE mms_module
     END IF
 !_______________________________________________________________________
 !_______________________________________________________________________
-
+#ifdef SHM
+    END IF
+#endif
   END SUBROUTINE mms_src_1
 
 
@@ -496,12 +563,18 @@ MODULE mms_module
 !   Compute the time at final time step center. Multiply with ref_flux.
 !   No need for ref_fluxm since only ref_flux is checked in mms_verify.
 !_______________________________________________________________________
+#ifdef SHM
+    IF ( is_shm_master .EQV. .TRUE. ) THEN
+    CALL plib_dbg_printf("mms_flux_1_2")
+#endif
 
     t = tf - half*dt
     ref_flux = t*ref_flux
 !_______________________________________________________________________
 !_______________________________________________________________________
-
+#ifdef SHM
+    END IF
+#endif
   END SUBROUTINE mms_flux_1_2
 
 

@@ -22,6 +22,10 @@ MODULE solvar_module
 
   USE control_module, ONLY: timedep, angcpy
 
+#ifdef SHM
+  USE plib_module
+#endif
+
   IMPLICIT NONE
 
   PUBLIC
@@ -68,6 +72,17 @@ MODULE solvar_module
 !
 !_______________________________________________________________________
 
+#ifdef SHM
+  REAL(r_knd), DIMENSION(:), POINTER :: fmin, fmax, pop
+
+  REAL(r_knd), DIMENSION(:,:,:,:), POINTER :: flux0, flux0po,          &
+    flux0pi, q2grp0, t_xs, a_xs, psii, psij, psik, jb_in, jb_out,      &
+    kb_in, kb_out, flkx, flky, flkz
+
+  REAL(r_knd), DIMENSION(:,:,:,:,:), POINTER :: q2grpm, fluxm, s_xs
+
+  REAL(r_knd), DIMENSION(:,:,:,:,:,:), POINTER :: qtot
+#else
   REAL(r_knd), ALLOCATABLE, DIMENSION(:) :: fmin, fmax, pop
 
   REAL(r_knd), ALLOCATABLE, DIMENSION(:,:,:,:) :: flux0, flux0po,      &
@@ -77,9 +92,9 @@ MODULE solvar_module
   REAL(r_knd), ALLOCATABLE, DIMENSION(:,:,:,:,:) :: q2grpm, fluxm, s_xs
 
   REAL(r_knd), ALLOCATABLE, DIMENSION(:,:,:,:,:,:) :: qtot
+#endif
 
   REAL(r_knd), DIMENSION(:,:,:,:,:,:), POINTER :: ptr_in, ptr_out
-
 
   CONTAINS
 
@@ -103,14 +118,27 @@ MODULE solvar_module
 
     ierr = 0
 
+#ifdef SHM
+    CALL plib_dbg_printf("solvar_allocate")
+#endif
+
     NULLIFY( ptr_in, ptr_out )
 
     IF ( timedep == 1 ) THEN
       IF ( angcpy == 1 ) THEN
+#ifdef SHM
+        CALL shm_allocate(nang,nx,ny,nz,noct,ng, ptr_in, "ptr_in")
+#else
         ALLOCATE( ptr_in(nang,nx,ny,nz,noct,ng), STAT=ierr )
+#endif
       ELSE
+#ifdef SHM
+        CALL shm_allocate(nang,nx,ny,nz,noct,ng, ptr_in, "ptr_in")
+        CALL shm_allocate(nang,nx,ny,nz,noct,ng, ptr_out, "ptr_out")
+#else
         ALLOCATE( ptr_in(nang,nx,ny,nz,noct,ng),                       &
           ptr_out(nang,nx,ny,nz,noct,ng), STAT=ierr )
+#endif
       END IF
     ELSE
       ALLOCATE( ptr_in(0,0,0,0,0,0), ptr_out(0,0,0,0,0,0), STAT=ierr )
@@ -134,16 +162,30 @@ MODULE solvar_module
 !   to change as they want easily.
 !_______________________________________________________________________
 
+#ifdef SHM
+    CALL shm_allocate(nx,ny,nz,ng, flux0, "flux0")
+    CALL shm_allocate(nx,ny,nz,ng, flux0po, "flux0po")
+    CALL shm_allocate(nx,ny,nz,ng, flux0pi, "flux0pi")
+#else
     ALLOCATE( flux0(nx,ny,nz,ng), flux0po(nx,ny,nz,ng),                &
       flux0pi(nx,ny,nz,ng), STAT=ierr )
     IF ( ierr /= 0 ) RETURN
+#endif
 
     IF ( cmom > 1 ) THEN
+#ifdef SHM
+      CALL shm_allocate(cmom-1,nx,ny,nz,ng, fluxm, "fluxm")
+#else
       ALLOCATE( fluxm(cmom-1,nx,ny,nz,ng), STAT=ierr )
       IF ( ierr /= 0 ) RETURN
+#endif
     ELSE
-      ALLOCATE( fluxm(0:0,nx,ny,nz,ng), STAT=ierr )
+#ifdef SHM
+      CALL shm_allocate(1,nx,ny,nz,ng, fluxm, "fluxm")
+#else
+      ALLOCATE( fluxm(1,nx,ny,nz,ng), STAT=ierr )
       IF ( ierr /= 0 ) RETURN
+#endif
     END IF
 
     flux0   = zero
@@ -155,17 +197,29 @@ MODULE solvar_module
 !   Allocate the source arrays. Do the same thing for q2grpm as was done
 !   to fluxm above.
 !_______________________________________________________________________
-
+#ifdef SHM
+    CALL shm_allocate(nx,ny,nz,ng, q2grp0, "q2grp0")
+    CALL shm_allocate(cmom,ichunk,ny,nz,nc,ng, qtot, "qtot")
+#else
     ALLOCATE( q2grp0(nx,ny,nz,ng), qtot(cmom,ichunk,ny,nz,nc,ng),      &
       STAT=ierr )
     IF ( ierr /= 0 ) RETURN
+#endif
 
     IF ( cmom > 1 ) THEN
+#ifdef SHM
+      CALL shm_allocate(cmom-1,nx,ny,nz,ng, q2grpm, "q2grpm")
+#else
       ALLOCATE( q2grpm(cmom-1,nx,ny,nz,ng), STAT=ierr )
       IF ( ierr /= 0 ) RETURN
+#endif
     ELSE
+#ifdef SHM
+      CALL shm_allocate(1,nx,ny,nz,ng, q2grpm, "q2grpm")
+#else
       ALLOCATE( q2grpm(0:0,nx,ny,nz,ng), STAT=ierr )
       IF ( ierr /= 0 ) RETURN
+#endif
     END IF
 
     q2grp0 = zero
@@ -176,9 +230,15 @@ MODULE solvar_module
 !   Allocate the cross section expanded to spatial mesh arrays
 !_______________________________________________________________________
 
+#ifdef SHM
+    CALL shm_allocate(nx,ny,nz,ng, t_xs, "t_xs")
+    CALL shm_allocate(nx,ny,nz,ng, a_xs, "a_xs")
+    CALL shm_allocate(nx,ny,nz,nmom,ng, s_xs, "s_xs")
+#else
     ALLOCATE( t_xs(nx,ny,nz,ng), a_xs(nx,ny,nz,ng),                    &
       s_xs(nx,ny,nz,nmom,ng), STAT=ierr )
     IF ( ierr /= 0 ) RETURN
+#endif
 
     t_xs = zero
     a_xs = zero
@@ -188,9 +248,15 @@ MODULE solvar_module
 !   Working arrays
 !_______________________________________________________________________
 
+#ifdef SHM
+    CALL shm_allocate(nang,ny,nz,ng, psii, "psii")
+    CALL shm_allocate(nang,ichunk,nz,ng, psij, "psij")
+    CALL shm_allocate(nang,ichunk,ny,ng, psik, "psik")
+#else
     ALLOCATE( psii(nang,ny,nz,ng), psij(nang,ichunk,nz,ng),            &
       psik(nang,ichunk,ny,ng), STAT=ierr )
     IF ( ierr /= 0 ) RETURN
+#endif
 
     psii = zero
     psij = zero
@@ -200,9 +266,16 @@ MODULE solvar_module
 !   PE boundary flux arrays
 !_______________________________________________________________________
 
+#ifdef SHM
+    CALL shm_allocate(nang,ichunk,nz,ng, jb_in, "jb_in")
+    CALL shm_allocate(nang,ichunk,nz,ng, jb_out, "jb_out")
+    CALL shm_allocate(nang,ichunk,ny,ng, kb_in, "kb_in")
+    CALL shm_allocate(nang,ichunk,ny,ng, kb_out, "kb_out")
+#else
     ALLOCATE( jb_in(nang,ichunk,nz,ng), jb_out(nang,ichunk,nz,ng),     &
       kb_in(nang,ichunk,ny,ng), kb_out(nang,ichunk,ny,ng), STAT=ierr )
     IF ( ierr /= 0 ) RETURN
+#endif
 
     jb_in  = zero
     jb_out = zero
@@ -213,9 +286,15 @@ MODULE solvar_module
 !   Leakage arrays
 !_______________________________________________________________________
 
+#ifdef SHM
+    CALL shm_allocate(nx+1,ny,nz,ng, flkx, "flkx")
+    CALL shm_allocate(nx,ny+1,nz,ng, flky, "flky")
+    CALL shm_allocate(nx,ny,nz+1,ng, flkz, "flkz")
+#else
     ALLOCATE( flkx(nx+1,ny,nz,ng), flky(nx,ny+1,nz,ng),                &
       flkz(nx,ny,nz+1,ng), STAT=ierr )
     IF ( ierr /= 0 ) RETURN
+#endif
 
     flkx = zero
     flky = zero
@@ -225,14 +304,25 @@ MODULE solvar_module
 !   Flux extremes and particle population spectrum
 !_______________________________________________________________________
 
+#ifdef SHM
+    CALL shm_allocate(ng, fmin, "fmin")
+    CALL shm_allocate(ng, fmax, "fmax")
+    CALL shm_allocate(ng, pop, "pop")
+#else
     ALLOCATE( fmin(ng), fmax(ng), pop(ng), STAT=ierr )
     IF ( ierr /= 0 ) RETURN
+#endif
 
     fmin = zero
     fmax = zero
     pop = zero
 !_______________________________________________________________________
 !_______________________________________________________________________
+
+#ifdef SHM
+  CALL shm_barrier
+#endif
+  CALL plib_dbg_rootprintf("solvar_allocate done")
 
   END SUBROUTINE solvar_allocate
 
@@ -246,6 +336,39 @@ MODULE solvar_module
 !-----------------------------------------------------------------------
 !_______________________________________________________________________
 
+#ifdef SHM
+    CALL shm_deallocate(ptr_in)
+    IF ( angcpy==2 .OR. timedep==0 ) CALL shm_deallocate(ptr_out)
+    CALL shm_deallocate(flux0)
+    CALL shm_deallocate(flux0po)
+    CALL shm_deallocate(flux0pi)
+    CALL shm_deallocate(fluxm)
+
+    CALL shm_deallocate(q2grp0)
+    CALL shm_deallocate(q2grpm)
+    CALL shm_deallocate(qtot)
+
+    CALL shm_deallocate(t_xs)
+    CALL shm_deallocate(a_xs)
+    CALL shm_deallocate(s_xs)
+
+    CALL shm_deallocate(psii)
+    CALL shm_deallocate(psij)
+    CALL shm_deallocate(psik)
+
+    CALL shm_deallocate(jb_in)
+    CALL shm_deallocate(jb_out)
+    CALL shm_deallocate(kb_in)
+    CALL shm_deallocate(kb_out)
+
+    CALL shm_deallocate(flkx)
+    CALL shm_deallocate(flky)
+    CALL shm_deallocate(flkz)
+
+    CALL shm_deallocate(fmin)
+    CALL shm_deallocate(fmax)
+    CALL shm_deallocate(pop)
+#else
     DEALLOCATE( ptr_in )
     IF ( angcpy==2 .OR. timedep==0 ) DEALLOCATE( ptr_out )
     DEALLOCATE( flux0, flux0po, flux0pi, fluxm )
@@ -255,6 +378,7 @@ MODULE solvar_module
     DEALLOCATE( jb_in, jb_out, kb_in, kb_out )
     DEALLOCATE( flkx, flky, flkz )
     DEALLOCATE( fmin, fmax, pop )
+#endif
 !_______________________________________________________________________
 !_______________________________________________________________________
 

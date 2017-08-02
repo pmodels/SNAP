@@ -10,7 +10,7 @@ MODULE dim3_sweep_module
 
   USE global_module, ONLY: i_knd, l_knd, r_knd, zero, two, one, half
 
-  USE plib_module, ONLY: ichunk, firsty, lasty, firstz, lastz
+  USE plib_module
 
   USE geom_module, ONLY: nx, hi, hj, hk, ndimen, ny, nz, nc
 
@@ -18,8 +18,8 @@ MODULE dim3_sweep_module
 
   USE data_module, ONLY: src_opt, qim
 
-  USE control_module, ONLY: fixup, tolr, last_oct, update_ptr
-
+  USE control_module, ONLY: fixup, tolr, last_oct, update_ptr          &
+    , gcy
   USE thrd_comm_module, ONLY: sweep_recv_bdry, sweep_send_bdry
 
   IMPLICIT NONE
@@ -168,8 +168,16 @@ MODULE dim3_sweep_module
       DO l = 2, cmom
         psi = psi + ec(:,l)*qtot(l,ic,j,k)
       END DO
+!    IF ( gcy(1) > 1 ) THEN
+!      write(*,*) 'dim3 wiproc', wiproc, 'g=', g, 'psi=', psi
+!    END IF
 
       IF ( src_opt == 3 ) psi = psi + qim(:,i,j,k,oct,g)
+!    IF ( gcy(1) > 1 ) THEN
+!      write(*,*) 'dim3-2 wiproc', wiproc, 'g=', g,i,j,k,'psi=', psi
+!    END IF
+!      write(*,*) wiproc, g,'qim(:,i,j,k,oct,g)=',i,j,k,oct, qim(:,i,j,k,oct,g)
+
 !_______________________________________________________________________
 !
 !     Left/right boundary conditions, always vacuum. Dummy operations
@@ -201,6 +209,12 @@ MODULE dim3_sweep_module
       IF ( receive ) THEN
         CALL sweep_recv_bdry ( g, jd, kd, iop, t, reqs, szreq, nc,     &
           nang, ichunk, ny, nz, jb_in, kb_in )
+
+!    IF ( gcy(1) > 1 .AND. g == 2 ) THEN
+!      write(*,*) 'dim3-2 wiproc',wiproc,'g=',g,i,j,k,'jb_in',jb_in(1,1,:)
+!      write(*,*) 'dim3-2 wiproc',wiproc,'g=',g,i,j,k,'kb_in',kb_in(1,1,:)
+!    END IF
+
         receive = .FALSE.
       END IF
 !_______________________________________________________________________
@@ -209,6 +223,10 @@ MODULE dim3_sweep_module
 !     upstream neighbor or set to zero (always vacuum) if no usptream
 !     neighbor.
 !_______________________________________________________________________
+
+!    IF ( gcy(1) > 1 .AND. t == 2 ) THEN
+!      write(*,*) 'dim3-2 wiproc',wiproc,'g=',g,i,j,k,'psij(:,ic,k)',psij(:,ic,k)
+!    END IF
 
       ibb = 0
       ibt = 0
@@ -226,6 +244,10 @@ MODULE dim3_sweep_module
           psij(:,ic,k) = jb_in(:,ic,k)
         END IF
       END IF
+!    IF ( gcy(1) > 1 .AND. t == 2 ) THEN
+!      write(*,*) 'dim3-2 wiproc',wiproc,'g=',g,i,j,k,'psij(:,ic,k)-2', &
+!        psij(:,ic,k)
+!    END IF
 !_______________________________________________________________________
 !
 !     Front/back boundary condtions. Either received from upstream
@@ -248,6 +270,9 @@ MODULE dim3_sweep_module
           psik(:,ic,j) = kb_in(:,ic,j)
         END IF
       END IF
+!    IF ( gcy(1) > 1 .AND. t == 2 ) THEN
+!      write(*,*) 'dim3-2 wiproc',wiproc,'g=',g,i,j,k,'psik(:,ic,j)',psik(:,ic,j)
+!    END IF
 !_______________________________________________________________________
 !
 !     Compute initial solution
@@ -256,6 +281,23 @@ MODULE dim3_sweep_module
       IF ( vdelt /= zero ) THEN
         pc = ( psi + psii(:,j,k)*mu*hi + psij(:,ic,k)*eta*hj +         &
           psik(:,ic,j)*xi*hk + ptr_in(:,i,j,k)*vdelt ) * dinv(:,ic,j,k)
+    IF ( gcy(1) > 1 .AND. g == 2 ) THEN
+!    write(*,*) 'dim3-2 wiproc', wiproc, 'g=', g,i,j,k,'psii(:,j,k)*mu*hi=', &
+!        psii(:,j,k)*mu*hi
+!    write(*,*) 'dim3-2 wiproc', wiproc, 'g=', g,i,j,k,'psij(:,ic,k)*eta*hj', &
+!        psij(:,ic,k)*eta*hj
+!    write(*,*) 'dim3-2 wiproc', wiproc, 'g=', g,i,j,k,'psik(:,ic,j)*xi*hk', &
+!        psik(:,ic,j)*xi*hk
+!    write(*,*) 'dim3-2 wiproc', wiproc, 'g=', g,i,j,k,'ptr_in(:,i,j,k)', &
+!        ptr_in(:,i,j,k)
+!    write(*,*) 'dim3-2 wiproc', wiproc, 'g=', g,i,j,k,'vdelt', &
+!        vdelt
+!    write(*,*) 'dim3-2 wiproc', wiproc, 'g=', g,i,j,k,'ptr_in(:,i,j,k)*vdelt', &
+!        ptr_in(:,i,j,k)*vdelt
+!   write(*,*) 'dim3-2 wiproc', wiproc, 'g=', g,i,j,k,'dinv(:,ic,j,k)', &
+!        dinv(:,ic,j,k)
+!    write(*,*) 'dim3-2 wiproc', wiproc, 'g=', g,i,j,k,'pc1=', pc
+    END IF
       ELSE
         pc = ( psi + psii(:,j,k)*mu*hi + psij(:,ic,k)*eta*hj +         &
           psik(:,ic,j)*xi*hk ) * dinv(:,ic,j,k)
@@ -265,7 +307,6 @@ MODULE dim3_sweep_module
 !     Compute outgoing edges with diamond difference, no negative flux
 !     fixup
 !_______________________________________________________________________
-
       IF ( fixup == 0 ) THEN
 
         psi = pc
@@ -273,7 +314,7 @@ MODULE dim3_sweep_module
         psii(:,j,k) = two*psi - psii(:,j,k)
         psij(:,ic,k) = two*psi - psij(:,ic,k)
         IF ( ndimen == 3 ) psik(:,ic,j) = two*psi - psik(:,ic,j)
-        IF ( vdelt/=zero .AND. update_ptr )                            &
+        IF ( vdelt/=zero .AND. update_ptr(1) )                            &
           ptr_out(:,i,j,k) = two*psi - ptr_in(:,i,j,k)
 
       ELSE
@@ -344,10 +385,12 @@ MODULE dim3_sweep_module
         psii(:,j,k) = fxhv(:,1) * hv(:,1)
         psij(:,ic,k) = fxhv(:,2) * hv(:,2)
         IF ( ndimen == 3 ) psik(:,ic,j) = fxhv(:,3) * hv(:,3)
-        IF ( vdelt/=zero .AND. update_ptr )                            &
+        IF ( vdelt/=zero .AND. update_ptr(1) )                            &
           ptr_out(:,i,j,k) = fxhv(:,4) * hv(:,4)
 
       END IF
+!      write(*,*) wiproc, g, 'psii(:,j,k)=', psii(:,j,k)
+!      write(*,*) wiproc, g, 'psij(:,ic,k)=', psij(:,ic,k)
 !_______________________________________________________________________
 !
 !     Save edge fluxes (dummy if checks for unused non-vacuum BCs)
@@ -384,6 +427,10 @@ MODULE dim3_sweep_module
 !
 !     Compute the flux moments
 !_______________________________________________________________________
+!    IF ( gcy(1) > 1 .AND. g == 2 ) THEN
+!      write(*,*) 'dim3-3 wiproc', wiproc, 'g=', g,i,j,k,'psi=', psi
+!      write(*,*) 'dim3-2 wiproc', wiproc, 'g=', g,i,j,k,'w=', w
+!    END IF
 
       psi = w*psi
 
@@ -426,6 +473,10 @@ MODULE dim3_sweep_module
 !_______________________________________________________________________
 !_______________________________________________________________________
 
+!    IF ( gcy(1) > 1 .AND. g == 2 ) THEN
+!      write(*,*) 'dim3-2 wiproc', wiproc, 'g=', g,'flux0=', flux0(1,1,:)
+!      CALL plib_dbg_breakpoint
+!    END IF
   END SUBROUTINE dim3_sweep
 
 

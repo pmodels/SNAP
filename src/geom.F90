@@ -12,6 +12,12 @@ MODULE geom_module
 
   USE global_module, ONLY: i_knd, r_knd, zero, one, two
 
+#ifdef SHM
+  USE iso_c_binding
+
+  USE plib_module
+#endif
+
   IMPLICIT NONE
 
   PUBLIC
@@ -69,7 +75,11 @@ MODULE geom_module
 
   REAL(r_knd) :: dx, dy, dz, hi, hj, hk
 
+#ifdef SHM
+  REAL(r_knd), DIMENSION(:,:,:,:,:,:), POINTER :: dinv
+#else
   REAL(r_knd), ALLOCATABLE, DIMENSION(:,:,:,:,:,:) :: dinv
+#endif
 !_______________________________________________________________________
 !
 ! Derived data types for mini-KBA diagonals
@@ -87,13 +97,23 @@ MODULE geom_module
     INTEGER(i_knd) :: ic, j, k
   END TYPE cell_id_type
 
+#ifdef SHM
+  TYPE diag_type
+    INTEGER(i_knd) :: len
+    TYPE(cell_id_type), DIMENSION(:), POINTER :: cell_id
+  END TYPE diag_type
+#else
   TYPE diag_type
     INTEGER(i_knd) :: len
     TYPE(cell_id_type), ALLOCATABLE, DIMENSION(:) :: cell_id
   END TYPE diag_type
+#endif
 
+#ifdef SHM
+  TYPE(diag_type), DIMENSION(:), POINTER:: diag
+#else
   TYPE(diag_type), ALLOCATABLE, DIMENSION(:) :: diag
-
+#endif
 
   CONTAINS
 
@@ -122,8 +142,13 @@ MODULE geom_module
 
     ierr = 0
 
+#ifdef SHM
+    CALL plib_dbg_printf("geom_allocate")
+    CALL shm_allocate(nang,ichunk,ny,nz,nc,ng, dinv, "dinv")
+#else
     ALLOCATE( dinv(nang,ichunk,ny,nz,nc,ng), STAT=ierr )
     IF ( ierr /= 0 ) RETURN
+#endif
 
     hi = zero
     hj = zero
@@ -140,7 +165,12 @@ MODULE geom_module
 
       ndiag = ichunk + ny + nz - 2
 
+#ifdef SHM
+      CALL shm_allocate_diag_1d(ndiag, diag, "diag")
+      ALLOCATE(indx(ndiag), STAT=ierr )
+#else
       ALLOCATE( diag(ndiag), indx(ndiag), STAT=ierr )
+#endif
       IF ( ierr /= 0 ) RETURN
 
       diag%len = 0
@@ -166,7 +196,11 @@ MODULE geom_module
 
       DO nn = 1, ndiag
         ing = diag(nn)%len
+#ifdef SHM
+        CALL shm_allocate_cell_id_1d(ing, diag(nn)%cell_id, "cell_id")
+#else
         ALLOCATE( diag(nn)%cell_id(ing), STAT=ierr )
+#endif
         IF ( ierr /= 0 ) RETURN
       END DO
 !_______________________________________________________________________
@@ -174,6 +208,9 @@ MODULE geom_module
 !     Lastly, set each cell's actual ijk indices in this diagonal map
 !_______________________________________________________________________
 
+#ifdef SHM
+      IF (is_shm_master .EQV. .TRUE. ) THEN
+#endif
       DO k = 1, nz
       DO j = 1, ny
       DO i = 1, ichunk
@@ -186,12 +223,19 @@ MODULE geom_module
       END DO
       END DO
       END DO
-
+#ifdef SHM
+      END IF
+#endif
       DEALLOCATE( indx )
 
     END IF
 !_______________________________________________________________________
 !_______________________________________________________________________
+
+#ifdef SHM
+  CALL shm_barrier
+#endif
+  CALL plib_dbg_rootprintf("geom_allocate done")
 
   END SUBROUTINE geom_allocate
 
@@ -216,7 +260,11 @@ MODULE geom_module
 !   Deallocate the sweep parameters
 !_______________________________________________________________________
 
+#ifdef SHM
+    CALL shm_deallocate(dinv)
+#else
     DEALLOCATE( dinv )
+#endif
 !_______________________________________________________________________
 !
 !   Deallocate the diagonal related arrays with swp_typ
@@ -224,9 +272,18 @@ MODULE geom_module
 
     IF ( swp_typ == 1 ) THEN
       DO i = 1, ndiag
+#ifdef SHM
+        CALL shm_deallocate_cell_id_1d(diag(i)%cell_id)
+#else
         DEALLOCATE( diag(i)%cell_id )
+#endif
       END DO
+
+#ifdef SHM
+      CALL shm_deallocate_diag_1d(diag)
+#else
       DEALLOCATE( diag )
+#endif
     END IF
 !_______________________________________________________________________
 !_______________________________________________________________________
@@ -297,5 +354,61 @@ MODULE geom_module
 
   END SUBROUTINE geom_param_calc
 
+#ifdef SHM
+    SUBROUTINE shm_allocate_diag_1d(d1, value, str)
+    INTEGER(i_knd), INTENT(IN) :: d1
+    TYPE(diag_type), DIMENSION(:), POINTER, INTENT(INOUT) :: value
+    CHARACTER(*), INTENT(IN) :: str
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+    TYPE(diag_type) :: type
+
+    CALL shm_allocate_cp(d1, SIZEOF(type), p, str)
+    CALL C_F_POINTER(p, value, [d1])
+!    write(*,*) 'wiproc', wiproc, 'allocate(diag_type,1d)', d1
+  END SUBROUTINE shm_allocate_diag_1d
+#endif
+
+#ifdef SHM
+    SUBROUTINE shm_allocate_cell_id_1d(d1, value, str)
+    INTEGER(i_knd), INTENT(IN) :: d1
+    TYPE(cell_id_type), DIMENSION(:), POINTER, INTENT(INOUT) :: value
+    CHARACTER(*), INTENT(IN) :: str
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+    TYPE(cell_id_type) :: type
+
+    CALL shm_allocate_cp(d1, SIZEOF(type), p, str)
+    CALL C_F_POINTER(p, value, [d1])
+!    write(*,*) 'wiproc', wiproc, 'allocate(cell_id,1d)', d1
+  END SUBROUTINE shm_allocate_cell_id_1d
+
+  SUBROUTINE shm_deallocate_diag_1d(value)
+    TYPE(diag_type), DIMENSION(:), POINTER, INTENT(IN) :: value
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+
+    IF (ASSOCIATED(value) .EQV. .TRUE.) THEN
+      p = C_LOC(value(1))
+      CALL plib_shm_deallocate (p)
+    END IF
+  END SUBROUTINE shm_deallocate_diag_1d
+
+  SUBROUTINE shm_deallocate_cell_id_1d(value)
+    TYPE(cell_id_type), DIMENSION(:), POINTER, INTENT(IN) :: value
+
+    ! Local variables
+    TYPE(C_PTR) :: p
+
+    IF (ASSOCIATED(value) .EQV. .TRUE.) THEN
+      p = C_LOC(value(1))
+      CALL plib_shm_deallocate (p)
+    END IF
+  END SUBROUTINE shm_deallocate_cell_id_1d
+
+#endif
 
 END MODULE geom_module

@@ -11,6 +11,9 @@ MODULE sn_module
 
   USE global_module, ONLY: i_knd, r_knd, zero, one
 
+#ifdef SHM
+  USE plib_module
+#endif
   IMPLICIT NONE
 
   PUBLIC
@@ -46,13 +49,18 @@ MODULE sn_module
 
   INTEGER(i_knd) :: cmom, noct
 
+#ifdef SHM
+  INTEGER(i_knd), DIMENSION(:), POINTER :: lma
+  REAL(r_knd), DIMENSION(:), POINTER :: mu, eta, xi, w, wmu, weta, &
+    wxi
+  REAL(r_knd), DIMENSION(:,:,:), POINTER :: ec
+#else
   INTEGER(i_knd), ALLOCATABLE, DIMENSION(:) :: lma
-
   REAL(r_knd), ALLOCATABLE, DIMENSION(:) :: mu, eta, xi, w, wmu, weta, &
     wxi
 
   REAL(r_knd), ALLOCATABLE, DIMENSION(:,:,:) :: ec
-
+#endif
 
   CONTAINS
 
@@ -64,7 +72,6 @@ MODULE sn_module
 ! Allocate sn_module arrays.
 !
 !-----------------------------------------------------------------------
-
     INTEGER(i_knd), INTENT(IN) :: ndimen
 
     INTEGER(i_knd), INTENT(INOUT) :: istat
@@ -76,10 +83,19 @@ MODULE sn_module
     cmom = nmom
     noct = 2
 
+#ifdef SHM
+    CALL shm_allocate(nang, mu, 'mu')
+    CALL shm_allocate(nang, w, 'w')
+    CALL shm_allocate(nang, wmu, 'wmu')
+    CALL shm_allocate(nang, eta, 'eta')
+    CALL shm_allocate(nang, weta, 'weta')
+    CALL shm_allocate(nang, xi, 'xi')
+    CALL shm_allocate(nang, wxi, 'wxi')
+#else
     ALLOCATE( mu(nang), w(nang), wmu(nang), eta(nang), weta(nang),     &
       xi(nang), wxi(nang), STAT=istat )
     IF ( istat > 0 ) RETURN
-
+#endif
     w = zero
     mu = zero; wmu = zero
     eta = zero; weta = zero
@@ -95,11 +111,20 @@ MODULE sn_module
       noct = 8
     END IF
 
+#ifdef SHM
+    CALL shm_allocate(nang, cmom, noct, ec, "ec")
+    CALL shm_allocate(nmom, lma, "lma")
+#else
     ALLOCATE( ec(nang,cmom,noct), lma(nmom), STAT=istat )
     IF ( istat > 0 ) RETURN
-
+#endif
     ec = zero
     lma = 0
+
+#ifdef SHM
+  CALL shm_barrier
+#endif
+  CALL plib_dbg_rootprintf("sn_allocate done")
 !_______________________________________________________________________
 !_______________________________________________________________________
 
@@ -114,8 +139,19 @@ MODULE sn_module
 !
 !-----------------------------------------------------------------------
 !_______________________________________________________________________ 
-
+#ifdef SHM
+    CALL shm_deallocate(mu)
+    CALL shm_deallocate(w)
+    CALL shm_deallocate(eta)
+    CALL shm_deallocate(xi)
+    CALL shm_deallocate(wmu)
+    CALL shm_deallocate(weta)
+    CALL shm_deallocate(wxi)
+    CALL shm_deallocate(ec)
+    CALL shm_deallocate(lma)
+#else
     DEALLOCATE( mu, w, eta, xi, wmu, weta, wxi, ec, lma )
+#endif
 !_______________________________________________________________________
 !_______________________________________________________________________
 
