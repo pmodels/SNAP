@@ -11,7 +11,7 @@
 
 #ifdef SHM_MPIWIN
 
-#define SHM_SIZE (2<<24)
+#define SHM_SIZE (2UL<<32)
 static MPI_Aint shm_off = 0;
 static char *shm_base_ptr = NULL;
 static MPI_Win shm_win = MPI_WIN_NULL;
@@ -66,11 +66,11 @@ static inline void shm_mpiwin_barrier(void)
 static inline void shm_mpiwin_allocate(int *size, void **ptr, const char *str)
 {
     *ptr = shm_base_ptr + shm_off;
-//    shm_off += PLIB_PIP_ALIGN(*size, pagesize);
+/*  shm_off += PLIB_PIP_ALIGN(*size, pagesize); */
     shm_off += *size;
     if (shm_off >= SHM_SIZE) {
-        fprintf(stderr, "allocate %s shm ptr %p, size 0x%x, shm_off=0x%lx -- overflow\n",
-                str, *ptr, *size, shm_off);
+        fprintf(stderr, "allocate %s shm ptr %p, size 0x%x, shm_off=0x%lx -- overflow (max 0x%lx)\n",
+                str, *ptr, *size, shm_off, SHM_SIZE);
         fflush(stderr);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
