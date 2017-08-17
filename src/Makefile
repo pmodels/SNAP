@@ -29,6 +29,7 @@ TARGET = gsnap
 #TARGET = ksnap
 
 #HASWELL = yes
+KNL=yes
 
 ifeq ($(MPI),yes)
   DEFS := $(DEFS) MPI
@@ -114,6 +115,11 @@ ifeq ($(TARGET),ksnap)
     FFLAGS = -O0 $(OMPFLAG) -g -check bounds -traceback -warn unused
     FFLAG2 =
   endif
+endif
+
+ifeq ($(KNL),yes)
+	FFLAGS := $(FFLAGS) -xMIC-AVX512 -qopt-report=1
+	CFLAGS := $(CFLAGS) -xMIC-AVX512 -qopt-report=1
 endif
 
 .SUFFIXES:	.F90 .f90 .c .o
