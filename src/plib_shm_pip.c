@@ -14,7 +14,7 @@
 #include <pip.h>
 
 static int wrank = 0, pip_rank = 0;
-#define DEBUG
+
 #ifdef DEBUG
 #define dbg_print(str,...) do {                                             \
     fprintf(stdout, "wrank %d "str, wrank, ## __VA_ARGS__); fflush(stdout); \

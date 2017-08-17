@@ -11,8 +11,8 @@ MODULE input_module
 
   USE global_module, ONLY: i_knd, r_knd, iunit, ounit, zero, one
 
-  USE plib_module, ONLY: npey, npez, ichunk, nthreads, iproc, root,    &
-    comm_snap, bcast, nproc, barrier, nnested
+  USE plib_module, ONLY: npey, npez, ichunk, nthreads, wiproc, root,    &
+    comm_snap, bcast, nproc, barrier, nnested, wnproc
 
   USE geom_module, ONLY: ndimen, nx, ny, nz, lx, ly, lz
 
@@ -70,7 +70,7 @@ MODULE input_module
 
     ierr = 0
 
-    IF ( iproc == root ) READ( iunit, NML=invar, IOSTAT=ierr )
+    IF ( wiproc == root ) READ( iunit, NML=invar, IOSTAT=ierr )
     CALL bcast ( ierr, comm_snap, root )
     IF ( ierr /= 0 ) THEN
       error = '***ERROR: READ_INPUT: Problem reading input file'
@@ -79,7 +79,7 @@ MODULE input_module
       CALL stop_run ( 0, 0, 0, 0 )
     END IF
 
-    IF ( iproc == root ) THEN
+    IF ( wiproc == root ) THEN
       CALL input_echo
       CALL input_check ( ierr )
     END IF
@@ -249,7 +249,7 @@ MODULE input_module
     END IF
 
 #ifdef SHM
-    IF ( npey*npez*nthreads /= nproc ) THEN
+    IF ( npey*npez*nthreads /= wnproc ) THEN
       ierr = ierr + 1
       error = '***ERROR: INPUT_CHECK: NPEY*NPEZ*nthreads must equal MPI NPROC'
       CALL print_error ( ounit, error )
@@ -578,7 +578,7 @@ MODULE input_module
     ipak = 0
     dpak = zero
 
-    IF ( iproc == root ) THEN
+    IF ( wiproc == root ) THEN
 
       ipak(1) = npey
       ipak(2) = npez
@@ -630,7 +630,7 @@ MODULE input_module
 !   Unpack
 !_______________________________________________________________________
 
-    IF ( iproc /= root ) THEN
+    IF ( wiproc /= root ) THEN
 
       npey      = ipak(1)
       npez      = ipak(2)

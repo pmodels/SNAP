@@ -32,7 +32,7 @@ MODULE setup_module
   USE time_module, ONLY: tset, wtime
 
   USE plib_module, ONLY: npey, npez, glmax, comm_snap, yproc, zproc,   &
-    iproc, root, nthreads, thread_level, thread_single,                &
+    wiproc, root, nthreads, thread_level, thread_single,                &
     thread_funneled, thread_serialized, thread_multiple, nnested,      &
     do_nested, ichunk, pce
 #ifdef SHM
@@ -208,7 +208,7 @@ MODULE setup_module
 !   scatp, print the full scattering matrix to file.
 !_______________________________________________________________________
 
-    IF ( iproc == root ) THEN
+    IF ( wiproc == root ) THEN
       CALL setup_echo ( mis, mie, mjs, mje, mks, mke, qis, qie, qjs,   &
       qje, qks, qke )
       IF ( scatp == 1 ) CALL setup_scatp ( ierr, error )

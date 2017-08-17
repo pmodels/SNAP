@@ -365,7 +365,7 @@ MODULE inner_module
 !write(*,*) "inner ", iproc, " dfmxi-max", dfmxi
 !write(*,*) "inner ", iproc, " dfmxi-max inrdone=", inrdone
 
-    IF ( iproc==root .AND. it_det==1 ) THEN
+    IF ( wiproc==root .AND. it_det==1 ) THEN
       DO g = 1, ng
         WRITE( ounit, 221 ) g, iits(g), dfmxi(g)
       END DO

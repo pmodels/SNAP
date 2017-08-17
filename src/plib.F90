@@ -395,33 +395,33 @@ MODULE plib_module
     CALL plib_shm_destroy
     IF (comm_shm /= MPI_COMM_NULL) THEN
         CALL MPI_COMM_FREE(comm_shm, ierr)
-        write(*,*) 'comm_shm free'
+!        write(*,*) 'comm_shm free'
     END IF
     IF (comm_maxshm /= MPI_COMM_NULL) THEN
         CALL MPI_COMM_FREE(comm_maxshm, ierr)
-        write(*,*) 'comm_maxshm free'
+!        write(*,*) 'comm_maxshm free'
     END IF
     IF (comm_shmgrp /= MPI_COMM_NULL) THEN
         CALL MPI_COMM_FREE(comm_shmgrp, ierr)
-        write(*,*) 'comm_shmgrp free'
+!        write(*,*) 'comm_shmgrp free'
     END IF
 #endif
 
     IF (zcomm /= MPI_COMM_NULL) THEN
         CALL MPI_COMM_FREE(zcomm, ierr)
-        write(*,*) 'zcomm free'
+!        write(*,*) 'zcomm free'
     END IF
     IF (ycomm /= MPI_COMM_NULL) THEN
         CALL MPI_COMM_FREE(ycomm, ierr)
-        write(*,*) 'ycomm free'
+!        write(*,*) 'ycomm free'
     END IF
     IF (comm_space /= MPI_COMM_NULL) THEN
         CALL MPI_COMM_FREE(comm_space, ierr)
-        write(*,*) 'comm_space free'
+!        write(*,*) 'comm_space free'
     END IF
     IF (comm_snap /= MPI_COMM_NULL) THEN
         CALL MPI_COMM_FREE(comm_snap, ierr)
-        write(*,*) 'comm_snap free'
+!        write(*,*) 'comm_snap free'
     END IF
 
     CALL MPI_FINALIZE ( ierr )

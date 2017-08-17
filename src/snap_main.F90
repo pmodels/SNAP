@@ -76,7 +76,7 @@ PROGRAM snap_main
 
   USE dealloc_module
 
-  USE plib_module, ONLY: pinit, iproc, root, comm_snap, bcast,         &
+  USE plib_module, ONLY: pinit, wiproc, root, comm_snap, bcast,         &
     pcomm_set, pinit_omp
 #ifdef SHM
   USE plib_module, ONLY: is_shm_master, shm_iproc, comm_shm, wiproc,   &
@@ -141,7 +141,7 @@ PROGRAM snap_main
 ! Write code version and execution time to output.
 !_______________________________________________________________________
 
-  IF ( iproc == root ) CALL version_print
+  IF ( wiproc == root ) CALL version_print
 !_______________________________________________________________________
 !
 ! Read input
@@ -190,7 +190,7 @@ PROGRAM snap_main
 !_______________________________________________________________________
 
 !  CALL output
-  IF ( iproc == root ) CALL time_summ
+  IF ( wiproc == root ) CALL time_summ
 !_______________________________________________________________________
 !
 ! Final cleanup: deallocate, close output file, end the program
@@ -202,7 +202,7 @@ PROGRAM snap_main
   CALL wtime ( t5 )
   tsnap = t5 - t1
 
-  IF ( iproc == root ) THEN
+  IF ( wiproc == root ) THEN
     WRITE( ounit, 501 ) tsnap
     WRITE( ounit, 502 ) tgrind, ( star, i = 1, 80 )
   END IF
@@ -211,7 +211,6 @@ PROGRAM snap_main
   ! Wait master PIP done
   CALL shm_barrier
   CALL bcast ( otrdone(1), comm_shm, 0 )
-  write(*,*) 'wiproc=', wiproc , ' shm_iproc', shm_iproc, ' otrdone=', otrdone
 #endif
 
   CALL close_file ( ounit, ierr, error )

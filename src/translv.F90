@@ -118,7 +118,7 @@ SUBROUTINE translv
 ! static for proper multiplication in octsweep.
 !_______________________________________________________________________
 
-  IF ( iproc == root ) THEN
+  IF ( wiproc == root ) THEN
     WRITE( *, 201)     ( star, i = 1, 80 )
     WRITE( ounit, 201) ( star, i = 1, 80 )
   END IF
@@ -157,7 +157,7 @@ SUBROUTINE translv
     time(1) = one
     update_ptr(1) = .TRUE.
     IF ( timedep == 1 ) THEN
-      IF ( iproc == root ) THEN
+      IF ( wiproc == root ) THEN
         WRITE( *, 202 )     ( star, i = 1, 30 ), cy
         WRITE( ounit, 202 ) ( star, i = 1, 30 ), cy
       END IF
@@ -258,7 +258,7 @@ SUBROUTINE translv
 
     cy_iits = 0
 
-    IF ( iproc==root .AND. it_det==0 ) THEN
+    IF ( wiproc==root .AND. it_det==0 ) THEN
       WRITE( *, 203 )
       WRITE( ounit, 203 )
     END IF
@@ -279,7 +279,7 @@ SUBROUTINE translv
   IF ( is_shm_master .EQV. .TRUE. ) THEN
 #endif
   !$OMP MASTER
-      IF ( iproc==root .AND. it_det==1 ) THEN
+      IF ( wiproc==root .AND. it_det==1 ) THEN
         WRITE( *, 204 )     ( star, i = 1, 20 ), otno
         WRITE( ounit, 204 ) ( star, i = 1, 20 ), otno
       END IF
@@ -305,7 +305,7 @@ SUBROUTINE translv
       out_iits = SUM( iits )
       cy_iits = cy_iits + out_iits
 
-      IF ( iproc == root ) THEN
+      IF ( wiproc == root ) THEN
         WRITE( *, 205 )     otno, dfmxo(1), out_iits
         WRITE( ounit, 205 ) otno, dfmxo(1), out_iits
       END IF
@@ -343,7 +343,7 @@ SUBROUTINE translv
 !      write(*,*) 'translv2: do_grp=', do_grp
       CALL assign_thrd_set ( do_grp, ng, ng_per_thrd(1), 0, nnstd_used,   &
         grp_act )
-      IF ( iproc==root .AND. it_det==1 ) THEN
+      IF ( wiproc==root .AND. it_det==1 ) THEN
         WRITE( *, 204 )     ( star, i = 1, 20 ), otno
         WRITE( ounit, 204 ) ( star, i = 1, 20 ), otno
       END IF
@@ -365,7 +365,7 @@ SUBROUTINE translv
   !$OMP MASTER
       out_iits = SUM( iits )
       cy_iits = cy_iits + out_iits
-      IF ( iproc == root ) THEN
+      IF ( wiproc == root ) THEN
         WRITE( *, 205 )     otno, dfmxo(1), out_iits
         WRITE( ounit, 205 ) otno, dfmxo(1), out_iits
       END IF
@@ -393,7 +393,7 @@ SUBROUTINE translv
 !   main parallel thread region.
 !_______________________________________________________________________
 
-    IF ( iproc == root ) THEN
+    IF ( wiproc == root ) THEN
       IF ( timedep == 1 ) THEN
         IF ( otrdone(1) ) THEN
           WRITE( *, 206 )     cy, time(1), otno, cy_iits
@@ -447,7 +447,7 @@ SUBROUTINE translv
 !   Final prints.
 !_______________________________________________________________________
 
-  IF ( iproc == root ) THEN
+  IF ( wiproc == root ) THEN
     IF ( timedep == 1 ) THEN
       WRITE( *, 210 )     ( star, i = 1, 30 ), tot_iits
       WRITE( ounit, 210 ) ( star, i = 1, 30 ), tot_iits

@@ -26,7 +26,7 @@ MODULE output_module
 
   USE time_module, ONLY: tout, wtime
 
-  USE plib_module, ONLY: iproc, root, zproc, bcast, comm_snap,         &
+  USE plib_module, ONLY: wiproc, root, zproc, bcast, comm_snap,         &
     comm_space, sproc, cartrank, npey, psend, precv, barrier
 
   IMPLICIT NONE
@@ -83,7 +83,7 @@ MODULE output_module
 
     IF ( soloutp == 1 ) THEN
 
-      IF ( iproc == root ) THEN
+      IF ( wiproc == root ) THEN
         WRITE( ounit, 301 ) ( star, i = 1, 80 )
         ALLOCATE( fprnt(nx,ny_gl), STAT=ierr )
         fprnt = zero
@@ -126,7 +126,7 @@ MODULE output_module
 !       proc or npez=1. Receives messages in order for proper printing.
 !_______________________________________________________________________
 
-        IF ( iproc == root ) THEN
+        IF ( wiproc == root ) THEN
 
           co(1) = (k-1)/nz
           fprnt(:,1:ny) = flux0(:,:,kloc,g)
@@ -165,7 +165,7 @@ MODULE output_module
 !     Cleanup
 !_______________________________________________________________________
 
-      IF ( iproc == root ) DEALLOCATE( fprnt )
+      IF ( wiproc == root ) DEALLOCATE( fprnt )
 
     END IF
 !_______________________________________________________________________
@@ -280,7 +280,7 @@ MODULE output_module
       CALL stop_run ( 1, 4, 2, 0 )
     END IF
 
-    IF ( iproc == root ) THEN
+    IF ( wiproc == root ) THEN
       ALLOCATE( fprnt(nx,ny_gl), STAT=ierr )
       fprnt = zero
     END IF
@@ -295,7 +295,7 @@ MODULE output_module
 !   Root does all printing. Start with file header comment.
 !_______________________________________________________________________
 
-    IF ( iproc == root ) THEN
+    IF ( wiproc == root ) THEN
       IF ( fluxp == 1 ) THEN
         WRITE( fu, 321 )
       ELSE
@@ -311,7 +311,7 @@ MODULE output_module
 
     DO l = 1, MAX( 1, (fluxp-1)*cmom )
 
-      IF ( iproc == root ) WRITE( fu, 323 ) l
+      IF ( wiproc == root ) WRITE( fu, 323 ) l
 
       DO g = 1, ng
         DO k = 1, nz_gl
@@ -327,7 +327,7 @@ MODULE output_module
           END IF
      
 
-          IF ( iproc == root ) THEN
+          IF ( wiproc == root ) THEN
             co(1) = (k-1)/nz
             fprnt(:,1:ny) = flux0(:,:,kloc,g)
             DO jp = 0, npey-1
@@ -350,7 +350,7 @@ MODULE output_module
 !   Cleanup
 !_______________________________________________________________________
 
-    IF ( iproc == root ) DEALLOCATE( fprnt )
+    IF ( wiproc == root ) DEALLOCATE( fprnt )
 
     CALL close_file ( fu, ierr, error )
     CALL bcast ( ierr, comm_snap, root )

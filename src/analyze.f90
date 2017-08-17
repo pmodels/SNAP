@@ -18,7 +18,7 @@ MODULE analyze_module
 
   USE solvar_module, ONLY: flux0, pop
 
-  USE plib_module, ONLY: iproc, root, comm_snap, rtsum
+  USE plib_module, ONLY: wiproc, root, comm_snap, rtsum
 
   IMPLICIT NONE
 
@@ -82,7 +82,7 @@ MODULE analyze_module
 !   change this though.
 !_______________________________________________________________________
 
-    IF ( iproc == root ) THEN
+    IF ( wiproc == root ) THEN
 
       IF ( timedep == 1 ) THEN
         pop = pop/v

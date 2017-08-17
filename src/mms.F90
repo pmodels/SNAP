@@ -20,7 +20,7 @@ MODULE mms_module
 
   USE control_module, ONLY: timedep, tf, dt, tolr
 
-  USE plib_module, ONLY: yproc, zproc, iproc, root, glmax, glmin,      &
+  USE plib_module, ONLY: yproc, zproc, wiproc, root, glmax, glmin,      &
     comm_snap, glsum
 #ifdef SHM
   USE plib_module
@@ -618,7 +618,7 @@ MODULE mms_module
     CALL glsum ( dfsm, comm_snap )
     dfsm = dfsm / REAL( nx*ny_gl*nz_gl*ng )
 
-    IF ( iproc == root ) THEN
+    IF ( wiproc == root ) THEN
       WRITE( ounit, 421 ) ( star, i = 1, 80 )
       WRITE( ounit, 422 ) dfmx
       WRITE( ounit, 425 ) dfmn

@@ -13,7 +13,7 @@ MODULE utils_module
 
   USE dealloc_module
 
-  USE plib_module, ONLY: iproc, root, pend, plock_omp, nthreads
+  USE plib_module, ONLY: wiproc, root, pend, plock_omp, nthreads
 
   USE control_module, ONLY: swp_typ
 
@@ -50,7 +50,7 @@ MODULE utils_module
 !   to get i/o file names.
 !_______________________________________________________________________
 
-    IF ( iproc /= root ) RETURN
+    IF ( wiproc /= root ) RETURN
 
     ierr = 0
     error = ''
@@ -116,7 +116,7 @@ MODULE utils_module
     ierr = 0
     error = ''
 
-    IF ( iproc /= root ) RETURN
+    IF ( wiproc /= root ) RETURN
 
     tname = TRIM( fname )
 
@@ -154,7 +154,7 @@ MODULE utils_module
     ierr = 0
     error = ''
 
-    IF ( iproc /= root ) RETURN
+    IF ( wiproc /= root ) RETURN
 
     CLOSE( UNIT=funit, IOSTAT=ierr )
 
@@ -184,7 +184,7 @@ MODULE utils_module
 !   Print the error message.
 !_______________________________________________________________________
 
-    IF ( iproc /= root ) RETURN
+    IF ( wiproc /= root ) RETURN
 
     WRITE( *, 101 ) error
     IF ( funit > 0 ) WRITE( funit, 101 ) error
@@ -221,7 +221,7 @@ MODULE utils_module
 
     IF ( flg3 > 0 ) CALL dealloc_solve ( swp_typ, flg3 )
 
-    IF ( iproc == root ) THEN
+    IF ( wiproc == root ) THEN
       IF ( flg4 == 0 ) THEN
         WRITE( *, '(1X,A)') 'Aww SNAP. Program failed. Try again.'
       ELSE IF ( flg4 == 1 ) THEN
