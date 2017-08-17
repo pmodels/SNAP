@@ -147,7 +147,7 @@ else
 endif
 
 $(TARGET) :	$(OBJS)
-		$(FORTRAN) $(FFLAGS) $(FFLAG2) -o $@ $(OBJS)
+		$(FORTRAN) $(FFLAGS) $(FFLAG2) -o $(PREFIX)/$@ $(OBJS)
 
 version.o :	global.o
 geom.o :	global.o plib.o $(SHM_OBJ)
@@ -216,6 +216,6 @@ count:
 # Link compiled files only. No recompile.
 #
 link:
-	$(FORTRAN) $(FFLAGS) $(FFLAG2) -o $(TARGET) $(OBJS)
+	$(FORTRAN) $(FFLAGS) $(FFLAG2) -o $(PREFIX)/$(TARGET) $(OBJS)
 
 
