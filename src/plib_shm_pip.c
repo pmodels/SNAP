@@ -91,7 +91,9 @@ static inline void shm_pip_barrier(void)
     pip_barrier_wait(pip_barrier_p);
 }
 
-static inline void shm_pip_allocate(int *size, void **ptr, const char *str)
+#define PLIB_PIP_ALIGN(val, align) (((size_t)(val) + (align) - 1) & ~((align) - 1))
+
+static inline void shm_pip_allocate(size_t *size, void **ptr, const char *str)
 {
     void *c_ptr = NULL;
 
@@ -139,7 +141,7 @@ void plib_shm_destroy_(void)
 #endif
 }
 
-void plib_shm_allocate_(int *size, void **ptr, const char *str)
+void plib_shm_allocate_(size_t *size, void **ptr, const char *str)
 {
 #ifdef SHM_PIP
     return shm_pip_allocate(size, ptr, str);

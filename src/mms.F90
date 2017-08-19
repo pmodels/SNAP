@@ -196,6 +196,10 @@ MODULE mms_module
     IF (ASSOCIATED(ib)) CALL shm_deallocate(ib)
     IF (ASSOCIATED(jb)) CALL shm_deallocate(jb)
     IF (ASSOCIATED(kb)) CALL shm_deallocate(kb)
+
+    IF (ASSOCIATED(a)) CALL shm_deallocate(a)
+    IF (ASSOCIATED(b)) CALL shm_deallocate(b)
+    IF (ASSOCIATED(c)) CALL shm_deallocate(c)
 #else
     IF ( ALLOCATED( ref_flux ) ) DEALLOCATE( ref_flux )
     IF ( ALLOCATED( ref_fluxm ) ) DEALLOCATE( ref_fluxm )

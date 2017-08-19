@@ -79,6 +79,7 @@ MODULE control_module
   LOGICAL(l_knd), DIMENSION(1) :: otrdone
   LOGICAL(l_knd), ALLOCATABLE, DIMENSION(:) :: inrdone
 #endif
+  LOGICAL(l_knd) :: otrdone_l ! *PIP: copy used after deallocate.
   INTEGER(i_knd) :: ncor, last_oct, corner_sch(2,4)
 
 #ifdef SHM

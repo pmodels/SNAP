@@ -63,7 +63,7 @@ static inline void shm_mpiwin_barrier(void)
     MPI_Barrier(shm_mpiwin_comm);
 }
 
-static inline void shm_mpiwin_allocate(int *size, void **ptr, const char *str)
+static inline void shm_mpiwin_allocate(size_t *size, void **ptr, const char *str)
 {
     *ptr = shm_base_ptr + shm_off;
 /*  shm_off += PLIB_PIP_ALIGN(*size, pagesize); */
@@ -112,7 +112,7 @@ void plib_shm_destroy_(void)
 #endif
 }
 
-void plib_shm_allocate_(int *size, void **ptr, const char *str)
+void plib_shm_allocate_(size_t *size, void **ptr, const char *str)
 {
 #ifdef SHM_MPIWIN
     return shm_mpiwin_allocate(size, ptr, str);

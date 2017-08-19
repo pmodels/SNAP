@@ -82,7 +82,7 @@ PROGRAM snap_main
   USE plib_module, ONLY: is_shm_master, shm_iproc, comm_shm, wiproc,   &
     shm_barrier
 #endif
-  USE control_module, ONLY: otrdone, swp_typ
+  USE control_module, ONLY: otrdone, otrdone_l, swp_typ
 
   IMPLICIT NONE
 !_______________________________________________________________________
@@ -195,7 +195,7 @@ PROGRAM snap_main
 !
 ! Final cleanup: deallocate, close output file, end the program
 !_______________________________________________________________________
-
+  otrdone_l = otrdone(1)
   CALL dealloc_input ( 4 )
   CALL dealloc_solve ( swp_typ, 2 )
 
@@ -210,7 +210,7 @@ PROGRAM snap_main
 #ifdef SHM
   ! Wait master PIP done
   CALL shm_barrier
-  CALL bcast ( otrdone(1), comm_shm, 0 )
+  CALL bcast ( otrdone_l, comm_shm, 0 )
 #endif
 
   CALL close_file ( ounit, ierr, error )
@@ -220,7 +220,7 @@ PROGRAM snap_main
     CALL stop_run ( 1, 0, 0, 0 )
   END IF
 
-  IF ( otrdone(1) ) THEN
+  IF ( otrdone_l ) THEN
     CALL stop_run ( 1, 0, 0, 1 )
   ELSE
     CALL stop_run ( 1, 0, 0, 2 )
