@@ -44,7 +44,7 @@ static inline void shm_pip_init(MPI_Comm comm)
 
     MPI_Comm_rank(MPI_COMM_WORLD, &wrank);
     MPI_Comm_rank(shm_pip_comm, &pip_rank);
-    MPI_Comm_rank(shm_pip_comm, &pip_size);
+    MPI_Comm_size(shm_pip_comm, &pip_size);
 
     /* Root initializes barrier and bcast address. */
     if (pip_rank == 0) {
