@@ -122,6 +122,9 @@ ifeq ($(KNL),yes)
 	CFLAGS := $(CFLAGS) -xMIC-AVX512 -qopt-report=1
 endif
 
+# avoid ifort to create temp large array on stack, which might be bad in PiP.
+FFLAGS := $(FFLAGS) -heap-arrays
+
 .SUFFIXES:	.F90 .f90 .c .o
 
 OBJS = global.o snap_main.o utils.o version.o plib.o geom.o sn.o \
