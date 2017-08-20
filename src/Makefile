@@ -8,7 +8,11 @@ DEFS =
 PP =
 SHM_OBJ=
 
-CFLAGS= -DENABLE_ROOT_DBG
+PIPDIR=
+MPIDIR=
+
+CFLAGS=
+LDFLAGS=
 PREFIX=
 
 MPI = yes
@@ -19,7 +23,7 @@ SHM_MPIWIN = no
 SHM = no
 
 FORTRAN = mpif90
-CC = mpicc
+CC = icc
 #FORTRAN = mpifort
 #FORTRAN = ftn
 #FORTRAN = mpiifort
@@ -44,7 +48,8 @@ endif
 ifeq ($(SHM_PIP),yes)
   SHM = yes
   SHM_MPIWIN = no
-  CFLAGS := $(CFLAGS) -DSHM_PIP
+  CFLAGS := $(CFLAGS) -DSHM_PIP -I$(PIPDIR)/include
+  LDFLAGS := $(LDFLAGS) -L$(PIPDIR)/lib -Wl,-rpath -Wl,$(PIPDIR)/lib -lpip
 else
   ifeq ($(SHM_MPIWIN),yes)
     SHM = yes
@@ -81,27 +86,41 @@ PPFLAGS = $(foreach def,$(DEFS),-D$(def))
 
 ifeq ($(TARGET),gsnap)
   FFLAGS = -O3 $(OMPFLAG)
+  CFLAGS := $(CFLAGS) -O3
   FFLAG2 =
   PP = cpp
   ifeq ($(OPT),no)
     TARGET = gsnap_db
     FFLAGS = -O0 $(OMPFLAG) -g -fbounds-check -fbacktrace
+    CFLAGS := $(CFLAGS) -O0 -g
     FFLAG2 =
+  endif
+  
+  ifeq ($(KNL),yes)
+	FFLAGS := $(FFLAGS) -xMIC-AVX512 -qopt-report=1
+	CFLAGS := $(CFLAGS) -xMIC-AVX512 -qopt-report=1
   endif
 endif
 
 ifeq ($(TARGET),isnap)
   FFLAGS = -O3 $(OMPFLAG) -ip -align array32byte -qno-opt-dynamic-align -fno-fnalias -fp-model fast -fp-speculation fast
+  CFLAGS := $(CFLAGS) -O3
   ifeq ($(HASWELL),yes)
     FFLAGS := $(FFLAGS) -xcore-avx2
   else
-    FFLAGS := $(FFLAGS) -xHost
+    ifeq ($(KNL),yes)
+      FFLAGS := $(FFLAGS) -xMIC-AVX512 -qopt-report=1
+      CFLAGS := $(CFLAGS) -xMIC-AVX512 -qopt-report=1
+    else
+      FFLAGS := $(FFLAGS) -xHost
+    endif
   endif
   FFLAG2 =
   PP = fpp
   ifeq ($(OPT),no)
     TARGET = isnap_db
     FFLAGS = -O0 $(OMPFLAG) -g -check bounds -traceback -warn unused
+    CFLAGS := $(CFLAGS) -O0 -g
     FFLAG2 =
   endif
 endif
@@ -117,10 +136,6 @@ ifeq ($(TARGET),ksnap)
   endif
 endif
 
-ifeq ($(KNL),yes)
-	FFLAGS := $(FFLAGS) -xMIC-AVX512 -qopt-report=1
-	CFLAGS := $(CFLAGS) -xMIC-AVX512 -qopt-report=1
-endif
 
 # avoid ifort to create temp large array on stack, which might be bad in PiP.
 FFLAGS := $(FFLAGS) -heap-arrays
@@ -156,7 +171,7 @@ else
 endif
 
 $(TARGET) :	$(OBJS)
-		$(FORTRAN) $(FFLAGS) $(FFLAG2) -o $(PREFIX)/$@ $(OBJS)
+		$(FORTRAN) $(FFLAGS) $(FFLAG2) $(LDFLAGS) -o $(PREFIX)/$@ $(OBJS)
 
 version.o :	global.o
 geom.o :	global.o plib.o $(SHM_OBJ)
@@ -225,6 +240,6 @@ count:
 # Link compiled files only. No recompile.
 #
 link:
-	$(FORTRAN) $(FFLAGS) $(FFLAG2) -o $(PREFIX)/$(TARGET) $(OBJS)
+	$(FORTRAN) $(FFLAGS) $(FFLAG2) $(LDFLAGS) -o $(PREFIX)/$(TARGET) $(OBJS)
 
 
