@@ -14,6 +14,9 @@
 #include <pip.h>
 
 static int wrank = 0, pip_rank = 0;
+#ifdef SHM_PIP_ALIGN
+static size_t pagesize = 0;
+#endif
 
 #ifdef DEBUG
 #define dbg_print(str,...) do {                                             \
@@ -30,9 +33,18 @@ static int wrank = 0, pip_rank = 0;
         MPI_Abort(MPI_COMM_WORLD, -1);                                        \
     } while (0)
 
+#define info_print(str,...) do {                                              \
+        fprintf(stdout, "PLIBPIP info at %s: wrank %d "str, __FUNCTION__,    \
+                wrank, ## __VA_ARGS__);                                       \
+        fflush(stdout);                                                       \
+    } while (0)
+
 static int shm_pip_alloc_cnt = 0;
 static MPI_Comm shm_pip_comm = MPI_COMM_NULL;
+
+#ifdef SHM_PIP_PBARRIER
 static pip_barrier_t pip_barrier, *pip_barrier_p = NULL;
+#endif
 
 static inline void shm_pip_init(MPI_Comm comm)
 {
@@ -46,6 +58,11 @@ static inline void shm_pip_init(MPI_Comm comm)
     MPI_Comm_rank(shm_pip_comm, &pip_rank);
     MPI_Comm_size(shm_pip_comm, &pip_size);
 
+#ifdef SHM_PIP_ALIGN
+    pagesize = getpagesize();
+#endif
+
+#ifdef SHM_PIP_PBARRIER
     /* Root initializes barrier and bcast address. */
     if (pip_rank == 0) {
         pip_barrier_init(&pip_barrier, pip_size);
@@ -58,9 +75,19 @@ static inline void shm_pip_init(MPI_Comm comm)
         fail_print("bcast fails\n");
     }
     pip_barrier_p = (pip_barrier_t *) pip_barrier_p_aint;
-
+    dbg_print("PLIBPIP init pip_barrier_p=%p, pip_size=%d\n", pip_barrier_p, pip_size);
     /* Make sure no one access the pip barrier before initialization. */
     MPI_Barrier(shm_pip_comm);
+#endif /* end of SHM_PIP_PBARRIER */
+
+    if (wrank == 0) {
+#ifdef SHM_PIP_ALIGN
+        info_print("SHM_PIP_ALIGN enabled\n");
+#endif
+#ifdef SHM_PIP_PBARRIER
+        info_print("SHM_PIP_PBARRIER enabled\n");
+#endif
+    }
 }
 
 static inline void shm_pip_destroy(void)
@@ -83,12 +110,16 @@ static inline void shm_pip_bcast_fp(void **ptr)
     }
 
     *ptr = (void *) ptr_addr;
-    dbg_print("PLIBPIP bcast fp %p on shm_pip_comm\n", *ptr);
+//    dbg_print("PLIBPIP bcast fp %p on shm_pip_comm\n", *ptr);
 }
 
 static inline void shm_pip_barrier(void)
 {
+#ifdef SHM_PIP_PBARRIER
     pip_barrier_wait(pip_barrier_p);
+#else
+    MPI_Barrier(shm_pip_comm);
+#endif
 }
 
 #define PLIB_PIP_ALIGN(val, align) (((size_t)(val) + (align) - 1) & ~((align) - 1))
@@ -96,15 +127,19 @@ static inline void shm_pip_barrier(void)
 static inline void shm_pip_allocate(size_t *size, void **ptr, const char *str)
 {
     void *c_ptr = NULL;
-
+#ifdef SHM_PIP_ALIGN
+    size_t sz_align = PLIB_PIP_ALIGN(*size, pagesize);
+#else
+    size_t sz_align = *size;
+#endif
     if (pip_rank == 0) {
-        c_ptr = malloc(*size);
+        c_ptr = malloc(sz_align);
         if (c_ptr == NULL) {
-            fail_print("malloc %ld bytes fails\n", *size);
+            fail_print("malloc %ld bytes fails\n", sz_align);
         }
 
-        dbg_print("PLIBPIP malloc %s ptr %p, size 0x%x, allocate_count=%d\n",
-                  str, c_ptr, *size, shm_pip_alloc_cnt);
+        dbg_print("PLIBPIP malloc %s ptr %p, size 0x%lx(align 0x%lx), allocate_count=%d\n",
+                  str, c_ptr, *size, sz_align, shm_pip_alloc_cnt);
     }
 
     shm_pip_bcast_fp(&c_ptr);
