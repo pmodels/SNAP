@@ -28,6 +28,11 @@ static MPI_Comm shm_mpiwin_comm = MPI_COMM_NULL;
 #define dbg_print(str,...) do {} while (0)
 #endif
 
+#define info_print(str,...) do {                                              \
+        fprintf(stdout, "PLIBMPIWIN info at %s: wrank %d "str, __FUNCTION__,    \
+                wrank, ## __VA_ARGS__);                                       \
+        fflush(stdout);                                                       \
+    } while (0)
 
 static inline void shm_mpiwin_init(MPI_Comm comm_shm)
 {
@@ -54,6 +59,12 @@ static inline void shm_mpiwin_init(MPI_Comm comm_shm)
     }
     dbg_print("init shm size 0x%lx baseptr %p on comm 0x%x, win 0x%x\n",
               SHM_SIZE, shm_base_ptr, shm_mpiwin_comm, shm_win);
+
+    if (wrank == 0) {
+#ifdef SHM_MPIWIN_ALIGN
+        info_print("SHM_MPIWIN_ALIGN enabled\n");
+#endif
+    }
 }
 
 #define PLIB_PIP_ALIGN(val, align) (((size_t)(val) + (align) - 1) & ~((align) - 1))
@@ -66,7 +77,9 @@ static inline void shm_mpiwin_barrier(void)
 static inline void shm_mpiwin_allocate(size_t *size, void **ptr, const char *str)
 {
     *ptr = shm_base_ptr + shm_off;
-/*  shm_off += PLIB_PIP_ALIGN(*size, pagesize); */
+#ifdef SHM_MPIWIN_ALIGN
+    shm_off += PLIB_PIP_ALIGN(*size, pagesize);
+#endif
     shm_off += *size;
     if (shm_off >= SHM_SIZE) {
         fprintf(stderr, "allocate %s shm ptr %p, size 0x%x, shm_off=0x%lx -- overflow (max 0x%lx)\n",
