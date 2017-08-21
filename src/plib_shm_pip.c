@@ -69,7 +69,7 @@ static inline void shm_pip_init(MPI_Comm comm)
 
 #ifdef SHM_PIP_MEMPOOL
     /* Only master PIP allocates, the children PIPs query the start address. */
-    if (shm_rank == 0) {
+    if (pip_rank == 0) {
         shm_base_ptr = malloc(SHM_SIZE);
         memset(shm_base_ptr, 0, SHM_SIZE);
         shm_base_ptr_aint = (MPI_Aint) shm_base_ptr;
@@ -121,7 +121,7 @@ static inline void shm_pip_destroy(void)
     }
 
 #ifdef SHM_PIP_MEMPOOL
-    if (shm_rank == 0) {
+    if (pip_rank == 0) {
         free(shm_base_ptr);
     }
 #endif
