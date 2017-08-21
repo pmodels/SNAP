@@ -13,6 +13,10 @@
 
 #include <pip.h>
 
+#define SHM_SIZE (2UL<<32)
+static MPI_Aint shm_off = 0;
+static char *shm_base_ptr = NULL;
+
 static int wrank = 0, pip_rank = 0;
 #ifdef SHM_PIP_ALIGN
 static size_t pagesize = 0;
@@ -51,6 +55,7 @@ static inline void shm_pip_init(MPI_Comm comm)
     int pip_size = 0;
     int err = MPI_SUCCESS;
     MPI_Aint pip_barrier_p_aint = 0;
+    MPI_Aint shm_base_ptr_aint = 0;
 
     shm_pip_comm = comm;
 
@@ -60,6 +65,21 @@ static inline void shm_pip_init(MPI_Comm comm)
 
 #ifdef SHM_PIP_ALIGN
     pagesize = getpagesize();
+#endif
+
+#ifdef SHM_PIP_MEMPOOL
+    /* Only master PIP allocates, the children PIPs query the start address. */
+    if (shm_rank == 0) {
+        shm_base_ptr = malloc(SHM_SIZE);
+        memset(shm_base_ptr, 0, SHM_SIZE);
+        shm_base_ptr_aint = (MPI_Aint) shm_base_ptr;
+    }
+    err = MPI_Bcast(&shm_base_ptr_aint, 1, MPI_AINT, 0, shm_pip_comm);
+    if (err != MPI_SUCCESS) {
+        fail_print("bcast fails\n");
+    }
+
+    shm_base_ptr = (char *) shm_base_ptr_aint;
 #endif
 
 #ifdef SHM_PIP_PBARRIER
@@ -75,7 +95,8 @@ static inline void shm_pip_init(MPI_Comm comm)
         fail_print("bcast fails\n");
     }
     pip_barrier_p = (pip_barrier_t *) pip_barrier_p_aint;
-    dbg_print("PLIBPIP init pip_barrier_p=%p, pip_size=%d\n", pip_barrier_p, pip_size);
+    dbg_print("PLIBPIP init pip_barrier_p=%p, pip_size=%d, shm_base_ptr=%p, size=0x%lx\n",
+              pip_barrier_p, pip_size, shm_base_ptr, SHM_SIZE);
     /* Make sure no one access the pip barrier before initialization. */
     MPI_Barrier(shm_pip_comm);
 #endif /* end of SHM_PIP_PBARRIER */
@@ -87,6 +108,9 @@ static inline void shm_pip_init(MPI_Comm comm)
 #ifdef SHM_PIP_PBARRIER
         info_print("SHM_PIP_PBARRIER enabled\n");
 #endif
+#ifdef SHM_PIP_MEMPOOL
+        info_print("SHM_PIP_MEMPOOL enabled\n");
+#endif
     }
 }
 
@@ -95,6 +119,12 @@ static inline void shm_pip_destroy(void)
     if (shm_pip_alloc_cnt > 0) {
         fail_print("allocate_count %d > 0!\n", shm_pip_alloc_cnt);
     }
+
+#ifdef SHM_PIP_MEMPOOL
+    if (shm_rank == 0) {
+        free(shm_base_ptr);
+    }
+#endif
 }
 
 /* TODO: PIP way to bcast instead of MPI ? need pipid. */
@@ -132,6 +162,14 @@ static inline void shm_pip_allocate(size_t *size, void **ptr, const char *str)
 #else
     size_t sz_align = *size;
 #endif
+
+#ifdef SHM_PIP_MEMPOOL
+    if (shm_off + sz_align > SHM_SIZE) {
+        fail_print("malloc %ld bytes fails -- overflow limit 0x%lx\n", sz_align, SHM_SIZE);
+    }
+    c_ptr = shm_base_ptr + shm_off;
+    shm_off += sz_align;
+#else
     if (pip_rank == 0) {
         c_ptr = malloc(sz_align);
         if (c_ptr == NULL) {
@@ -143,7 +181,7 @@ static inline void shm_pip_allocate(size_t *size, void **ptr, const char *str)
     }
 
     shm_pip_bcast_fp(&c_ptr);
-
+#endif
     *ptr = c_ptr;
     shm_pip_alloc_cnt++;
 }
@@ -152,10 +190,14 @@ static inline void shm_pip_deallocate(void **ptr)
 {
     shm_pip_alloc_cnt--;
 
+#ifdef SHM_PIP_MEMPOOL
+    /* Do nothing */
+#else
     if (pip_rank == 0) {
         dbg_print("PLIBPIP free ptr %p, allocate_count=%d\n", *ptr, shm_pip_alloc_cnt);
         free(*ptr);
     }
+#endif
 }
 #endif
 
