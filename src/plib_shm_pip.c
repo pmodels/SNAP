@@ -13,7 +13,7 @@
 
 #include <pip.h>
 
-#define SHM_SIZE (2UL<<32)
+#define SHM_SIZE (2UL<<29) /*512MB*/
 static MPI_Aint shm_off = 0;
 static char *shm_base_ptr = NULL;
 

@@ -11,7 +11,7 @@
 
 #ifdef SHM_MPIWIN
 
-#define SHM_SIZE (2UL<<32)
+#define SHM_SIZE (2UL<<29) /*512MB*/
 static MPI_Aint shm_off = 0;
 static char *shm_base_ptr = NULL;
 static MPI_Win shm_win = MPI_WIN_NULL;
