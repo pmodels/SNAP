@@ -236,6 +236,9 @@ MODULE thrd_comm_module
                                   jb_in, ycomm, mtag )
     IF ( incomingz ) CALL precv ( zp_rcv, zproc, nang, ichunk, ny,     &
                                   kb_in, zcomm, mtag )
+    ! *PIP: out buffers will be updated soon.
+    IF ( outgoingy .OR. outgoingz ) CALL waitall ( reqs, szreq )
+
     IF (incomingy) THEN
 !    write(*,*) 'yproc=', yproc, wiproc, 'recv(ycomm) dst=', yp_rcv , ', tag=', &
 !        mtag, jb_in(:,:,1)
