@@ -239,14 +239,14 @@ MODULE thrd_comm_module
     ! *PIP: out buffers will be updated soon.
     IF ( outgoingy .OR. outgoingz ) CALL waitall ( reqs, szreq )
 
-    IF (incomingy) THEN
+!    IF (incomingy) THEN
 !    write(*,*) 'yproc=', yproc, wiproc, 'recv(ycomm) dst=', yp_rcv , ', tag=', &
 !        mtag, jb_in(:,:,1)
 !    END IF
 !    IF (incomingz) THEN
 !    write(*,*) 'zproc=', zproc, wiproc, 'recv(zcomm) dst=', zp_rcv , ', tag=', &
 !        mtag, kb_in(:,:,1)
-    END IF
+!    END IF
 !    IF ( outgoingy .OR. outgoingz ) CALL waitall ( reqs, szreq )
 !    IF ( outgoingy) THEN
 !    write(*,*) 'yproc=', yproc, 'wait'
