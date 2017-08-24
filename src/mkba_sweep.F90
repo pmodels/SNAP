@@ -477,6 +477,9 @@ MODULE mkba_sweep_module
 
         END DO line_loop
   !$OMP END DO
+#ifdef SHM
+  CALL shm_barrier !implicit barrier
+#endif
 
       END DO diagonal_loop
   !$OMP BARRIER

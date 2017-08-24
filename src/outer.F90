@@ -228,6 +228,9 @@ MODULE outer_module
 
     END DO
   !$OMP END PARALLEL
+#ifdef SHM
+  CALL shm_barrier !implicit barrier
+#endif
 !_______________________________________________________________________
 !_______________________________________________________________________
 
@@ -363,6 +366,9 @@ MODULE outer_module
 !write(*,*) "outer_conv ", iproc,"flux0 g=", g, flux0(:,1,1,g)
     END DO
   !$OMP END PARALLEL DO
+#ifdef SHM
+  CALL shm_barrier !implicit barrier
+#endif
 
     dft = MAXVAL( df )
 !    write(*,*) "outer ", iproc," dft=", dft
@@ -387,6 +393,7 @@ MODULE outer_module
 #ifdef SHM
   dfmxo(1) = MAX( dfmxo(1), dft )
   CALL glmax ( dfmxo(1), comm_shm )
+  CALL shm_barrier
 #else
   !$OMP CRITICAL
     dfmxo(1) = MAX( dfmxo(1), dft )

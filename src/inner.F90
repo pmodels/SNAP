@@ -224,6 +224,9 @@ MODULE inner_module
 
     END DO
   !$OMP END PARALLEL
+#ifdef SHM
+  CALL shm_barrier !implicit barrier
+#endif
 !_______________________________________________________________________
 !_______________________________________________________________________
 

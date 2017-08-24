@@ -149,6 +149,9 @@ MODULE sweep_module
 
     END DO corner_loop
   !$OMP END PARALLEL
+#ifdef SHM
+  CALL shm_barrier !implicit barrier
+#endif
 
   !   Complete last asynchronous sends
   CALL sweep_wait_bdry ( jd, kd, t, reqs, SIZE( reqs ))

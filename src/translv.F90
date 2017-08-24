@@ -245,6 +245,9 @@ SUBROUTINE translv
 
     END DO
   !$OMP END PARALLEL DO
+#ifdef SHM
+  CALL shm_barrier !implicit barrier
+#endif
 !_______________________________________________________________________
 !
 !   Using Jacobi iterations in energy,  and the work in the outer loop
