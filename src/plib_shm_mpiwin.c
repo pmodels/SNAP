@@ -11,7 +11,7 @@
 
 #ifdef SHM_MPIWIN
 
-#define SHM_SIZE (2UL<<29)      /*512MB */
+static MPI_Aint SHM_SIZE = (2UL << 29); /*512MB */
 static MPI_Aint shm_off = 0;
 static char *shm_base_ptr = NULL;
 static MPI_Win shm_win = MPI_WIN_NULL;
@@ -34,6 +34,17 @@ static MPI_Comm shm_mpiwin_comm = MPI_COMM_NULL;
         fflush(stdout);                                                       \
     } while (0)
 
+static inline void shm_mpiwin_readenv(void)
+{
+    char *val = NULL;
+    val = getenv("PLIB_SHM_MEMPOOL_SIZE");
+    if (val != NULL && strlen(val) > 0) {
+        MPI_Aint sz = atol(val);
+        if (sz > 0)
+            SHM_SIZE = sz;
+    }
+}
+
 static inline void shm_mpiwin_init(MPI_Comm comm_shm)
 {
     int rank = 0, shm_rank = 0;
@@ -44,6 +55,7 @@ static inline void shm_mpiwin_init(MPI_Comm comm_shm)
     MPI_Comm_rank(shm_mpiwin_comm, &shm_rank);
 
     pagesize = getpagesize();
+    shm_mpiwin_readenv();
 
     /* Only master PIP allocates, the children PIPs query the start address. */
     if (shm_rank == 0) {
@@ -61,6 +73,7 @@ static inline void shm_mpiwin_init(MPI_Comm comm_shm)
     }
 
     if (wrank == 0) {
+        info_print("SHM_SIZE 0x%lx (%ld MB)\n", SHM_SIZE, SHM_SIZE / 1024 / 1024);
 #ifdef SHM_MPIWIN_ALIGN
         info_print("SHM_MPIWIN_ALIGN enabled\n");
 #endif

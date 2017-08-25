@@ -13,7 +13,7 @@
 
 #include <pip.h>
 
-#define SHM_SIZE (2UL<<29)      /*512MB */
+static MPI_Aint SHM_SIZE = (2UL << 29); /*512MB */
 static MPI_Aint shm_off = 0;
 static char *shm_base_ptr = NULL;
 
@@ -54,6 +54,17 @@ static pip_barrier_t pip_barrier, *pip_barrier_p = NULL;
 MPI_Win shm_win = MPI_WIN_NULL;
 #endif
 
+static inline void shm_pip_readenv(void)
+{
+    char *val = NULL;
+    val = getenv("PLIB_SHM_MEMPOOL_SIZE");
+    if (val != NULL && strlen(val) > 0) {
+        MPI_Aint sz = atol(val);
+        if (sz > 0)
+            SHM_SIZE = sz;
+    }
+}
+
 static inline void shm_pip_init(MPI_Comm comm)
 {
     int pip_size = 0;
@@ -72,6 +83,8 @@ static inline void shm_pip_init(MPI_Comm comm)
 #endif
 
 #ifdef SHM_PIP_MEMPOOL
+    shm_pip_readenv();
+
 #ifdef SHM_PIP_MEMPOOL_WIN
     if (pip_rank == 0) {
         MPI_Win_allocate(SHM_SIZE, 1, MPI_INFO_NULL, shm_pip_comm, &shm_base_ptr, &shm_win);
@@ -124,6 +137,7 @@ static inline void shm_pip_init(MPI_Comm comm)
 #endif
 #ifdef SHM_PIP_MEMPOOL
         info_print("SHM_PIP_MEMPOOL enabled\n");
+        info_print("SHM_SIZE 0x%lx (%ld MB)\n", SHM_SIZE, SHM_SIZE / 1024 / 1024);
 #ifdef SHM_PIP_MEMPOOL_WIN
         info_print("SHM_PIP_MEMPOOL_WIN enabled\n");
 #endif
