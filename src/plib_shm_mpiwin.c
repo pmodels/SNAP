@@ -11,7 +11,7 @@
 
 #ifdef SHM_MPIWIN
 
-#define SHM_SIZE (2UL<<29) /*512MB*/
+#define SHM_SIZE (2UL<<29)      /*512MB */
 static MPI_Aint shm_off = 0;
 static char *shm_base_ptr = NULL;
 static MPI_Win shm_win = MPI_WIN_NULL;
@@ -49,6 +49,8 @@ static inline void shm_mpiwin_init(MPI_Comm comm_shm)
     if (shm_rank == 0) {
         MPI_Win_allocate_shared(SHM_SIZE, 1, MPI_INFO_NULL, shm_mpiwin_comm,
                                 &shm_base_ptr, &shm_win);
+        dbg_print("init shm size 0x%lx baseptr %p on comm 0x%x, win 0x%x\n",
+                  SHM_SIZE, shm_base_ptr, shm_mpiwin_comm, shm_win);
     }
     else {
         MPI_Aint r_size = 0;
@@ -57,8 +59,6 @@ static inline void shm_mpiwin_init(MPI_Comm comm_shm)
         MPI_Win_allocate_shared(0, 1, MPI_INFO_NULL, shm_mpiwin_comm, &shm_base_ptr, &shm_win);
         MPI_Win_shared_query(shm_win, 0, &r_size, &r_disp_unit, &shm_base_ptr);
     }
-    dbg_print("init shm size 0x%lx baseptr %p on comm 0x%x, win 0x%x\n",
-              SHM_SIZE, shm_base_ptr, shm_mpiwin_comm, shm_win);
 
     if (wrank == 0) {
 #ifdef SHM_MPIWIN_ALIGN
@@ -74,7 +74,7 @@ static inline void shm_mpiwin_barrier(void)
     MPI_Barrier(shm_mpiwin_comm);
 }
 
-static inline void shm_mpiwin_allocate(size_t *size, void **ptr, const char *str)
+static inline void shm_mpiwin_allocate(size_t * size, void **ptr, const char *str)
 {
     *ptr = shm_base_ptr + shm_off;
 #ifdef SHM_MPIWIN_ALIGN
@@ -82,8 +82,9 @@ static inline void shm_mpiwin_allocate(size_t *size, void **ptr, const char *str
 #endif
     shm_off += *size;
     if (shm_off >= SHM_SIZE) {
-        fprintf(stderr, "allocate %s shm ptr %p, size 0x%x, shm_off=0x%lx -- overflow (max 0x%lx)\n",
-                str, *ptr, *size, shm_off, SHM_SIZE);
+        fprintf(stderr,
+                "allocate %s shm ptr %p, size 0x%x, shm_off=0x%lx -- overflow (max 0x%lx)\n", str,
+                *ptr, *size, shm_off, SHM_SIZE);
         fflush(stderr);
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
@@ -125,7 +126,7 @@ void plib_shm_destroy_(void)
 #endif
 }
 
-void plib_shm_allocate_(size_t *size, void **ptr, const char *str)
+void plib_shm_allocate_(size_t * size, void **ptr, const char *str)
 {
 #ifdef SHM_MPIWIN
     return shm_mpiwin_allocate(size, ptr, str);
