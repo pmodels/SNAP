@@ -33,7 +33,6 @@ TARGET = gsnap
 #TARGET = ksnap
 
 #HASWELL = yes
-KNL=yes
 
 ifeq ($(MPI),yes)
   DEFS := $(DEFS) MPI
@@ -96,11 +95,6 @@ ifeq ($(TARGET),gsnap)
     CFLAGS := $(CFLAGS) -O0 -g
     FFLAG2 =
   endif
-  
-  ifeq ($(KNL),yes)
-	FFLAGS := $(FFLAGS) -xMIC-AVX512 -qopt-report=1
-	CFLAGS := $(CFLAGS) -xMIC-AVX512 -qopt-report=1
-  endif
 endif
 
 ifeq ($(TARGET),isnap)
@@ -109,12 +103,7 @@ ifeq ($(TARGET),isnap)
   ifeq ($(HASWELL),yes)
     FFLAGS := $(FFLAGS) -xcore-avx2
   else
-    ifeq ($(KNL),yes)
-      FFLAGS := $(FFLAGS) -xMIC-AVX512 -qopt-report=1
-      CFLAGS := $(CFLAGS) -xMIC-AVX512 -qopt-report=1
-    else
-      FFLAGS := $(FFLAGS) -xHost
-    endif
+		FFLAGS := $(FFLAGS) -xHost
   endif
   FFLAG2 =
   PP = fpp
@@ -137,9 +126,6 @@ ifeq ($(TARGET),ksnap)
   endif
 endif
 
-
-# avoid ifort to create temp large array on stack, which might be bad in PiP.
-FFLAGS := $(FFLAGS) -heap-arrays
 
 .SUFFIXES:	.F90 .f90 .c .o
 
