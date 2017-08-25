@@ -13,7 +13,7 @@
 
 #include <pip.h>
 
-#define SHM_SIZE (2UL<<29) /*512MB*/
+#define SHM_SIZE (2UL<<29)      /*512MB */
 static MPI_Aint shm_off = 0;
 static char *shm_base_ptr = NULL;
 
@@ -50,6 +50,10 @@ static MPI_Comm shm_pip_comm = MPI_COMM_NULL;
 static pip_barrier_t pip_barrier, *pip_barrier_p = NULL;
 #endif
 
+#ifdef SHM_PIP_MEMPOOL_WIN
+MPI_Win shm_win = MPI_WIN_NULL;
+#endif
+
 static inline void shm_pip_init(MPI_Comm comm)
 {
     int pip_size = 0;
@@ -68,12 +72,22 @@ static inline void shm_pip_init(MPI_Comm comm)
 #endif
 
 #ifdef SHM_PIP_MEMPOOL
+#ifdef SHM_PIP_MEMPOOL_WIN
+    if (pip_rank == 0) {
+        MPI_Win_allocate(SHM_SIZE, 1, MPI_INFO_NULL, shm_pip_comm, &shm_base_ptr, &shm_win);
+        shm_base_ptr_aint = (MPI_Aint) shm_base_ptr;
+    }
+    else {
+        MPI_Win_allocate(0, 1, MPI_INFO_NULL, shm_pip_comm, &shm_base_ptr, &shm_win);
+    }
+#else
     /* Only master PIP allocates, the children PIPs query the start address. */
     if (pip_rank == 0) {
         shm_base_ptr = malloc(SHM_SIZE);
         memset(shm_base_ptr, 0, SHM_SIZE);
         shm_base_ptr_aint = (MPI_Aint) shm_base_ptr;
     }
+#endif
     err = MPI_Bcast(&shm_base_ptr_aint, 1, MPI_AINT, 0, shm_pip_comm);
     if (err != MPI_SUCCESS) {
         fail_print("bcast fails\n");
@@ -110,7 +124,11 @@ static inline void shm_pip_init(MPI_Comm comm)
 #endif
 #ifdef SHM_PIP_MEMPOOL
         info_print("SHM_PIP_MEMPOOL enabled\n");
+#ifdef SHM_PIP_MEMPOOL_WIN
+        info_print("SHM_PIP_MEMPOOL_WIN enabled\n");
 #endif
+#endif
+
     }
 }
 
@@ -121,9 +139,13 @@ static inline void shm_pip_destroy(void)
     }
 
 #ifdef SHM_PIP_MEMPOOL
+#ifdef SHM_PIP_MEMPOOL_WIN
+    MPI_Win_free(&shm_win);
+#else
     if (pip_rank == 0) {
         free(shm_base_ptr);
     }
+#endif
 #endif
 }
 
@@ -154,7 +176,7 @@ static inline void shm_pip_barrier(void)
 
 #define PLIB_PIP_ALIGN(val, align) (((size_t)(val) + (align) - 1) & ~((align) - 1))
 
-static inline void shm_pip_allocate(size_t *size, void **ptr, const char *str)
+static inline void shm_pip_allocate(size_t * size, void **ptr, const char *str)
 {
     void *c_ptr = NULL;
 #ifdef SHM_PIP_ALIGN
@@ -218,7 +240,7 @@ void plib_shm_destroy_(void)
 #endif
 }
 
-void plib_shm_allocate_(size_t *size, void **ptr, const char *str)
+void plib_shm_allocate_(size_t * size, void **ptr, const char *str)
 {
 #ifdef SHM_PIP
     return shm_pip_allocate(size, ptr, str);
