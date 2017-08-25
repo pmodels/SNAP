@@ -83,6 +83,7 @@ else
 endif
 
 PPFLAGS = $(foreach def,$(DEFS),-D$(def))
+CFLAGS := $(CFLAGS) $(foreach def,$(DEFS),-D$(def))
 
 ifeq ($(TARGET),gsnap)
   FFLAGS = -O3 $(OMPFLAG)

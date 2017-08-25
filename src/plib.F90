@@ -333,6 +333,12 @@ MODULE plib_module
                'comm_space iproc=', sproc , '/', snproc, &
                'zcomm iproc=', zproc , '/', znproc
 
+#ifdef OPENMP
+    call plib_dbg_check_thread_cpubind
+#else
+    call plib_dbg_check_cpubind
+#endif
+
 !_______________________________________________________________________
 !
 !   Set some variables used during solution
